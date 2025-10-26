@@ -3,8 +3,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
-from backend.schemas import ValuationRequest, ValuationResponse
-from backend.services import analyze_portfolio, clear_service_caches
+from schemas import ValuationRequest, ValuationResponse
+from services import analyze_portfolio, clear_service_caches
 
 load_dotenv()
 
