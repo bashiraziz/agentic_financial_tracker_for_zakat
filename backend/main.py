@@ -15,7 +15,6 @@ app = FastAPI(title="Agentic Financial Tracker",
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://agentic-financial-tracker-for-zakat.vercel.app",  # your Vercel production domain
-    "https://agentic-financial-tracker-for-zakat-1n39jz8mx.vercel.app",  # current preview deployment
     "http://localhost:3000"],  # for local dev],  # Change to ["http://localhost:3000"] if needed
     allow_credentials=True,
     allow_methods=["*"],
