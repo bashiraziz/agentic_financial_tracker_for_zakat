@@ -1,0 +1,5 @@
+##########
+# Root dependency file used by build systems (Railway/Nixpacks/Docker) that look
+# for requirements.txt in the repo root. Delegate to the backend-specific list.
+##########
+-r backend/requirements.txt
