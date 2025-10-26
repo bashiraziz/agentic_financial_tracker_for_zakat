@@ -1,13 +1,17 @@
 from __future__ import annotations
-import asyncio
-from dataclasses import dataclass
-from functools import lru_cache
-from datetime import date, datetime, timedelta
-from typing import Dict, Iterable, List, Optional, Tuple
 
+import asyncio
 import csv
 import io
+import os
+import time
+from contextvars import ContextVar
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta
+from functools import lru_cache
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+import aiohttp
 import httpx
 
 from backend.schemas import (
@@ -35,6 +39,11 @@ from backend.services.alpha_vantage_client import (
 from backend.services.sec_holdings import FundHoldingsResult, get_sec_holdings, SecHoldingsError
 from backend.services.polygon_client import get_polygon_client
 
+MAX_CALLS_PER_MIN = 5
+PAUSE_SECONDS = 60
+API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY")
+ALPHA_VANTAGE_BASE_URL = os.getenv("ALPHA_VANTAGE_BASE_URL", "https://www.alphavantage.co")
+
 
 CASH_CONCEPTS: Tuple[str, ...] = (
     "CashAndCashEquivalentsAtCarryingValue",
@@ -59,6 +68,167 @@ SHARE_CONCEPTS: Tuple[str, ...] = (
 )
 
 SHARE_STALE_DAYS = 540
+
+PrefetchedPrice = Tuple[Optional[float], Optional[date], List[str]]
+_prefetched_prices_ctx: ContextVar[Optional[Dict[Tuple[str, date], PrefetchedPrice]]] = ContextVar(
+    "_prefetched_prices_ctx",
+    default=None,
+)
+
+
+def _reset_prefetched_price_cache() -> Dict[Tuple[str, date], PrefetchedPrice]:
+    cache: Dict[Tuple[str, date], PrefetchedPrice] = {}
+    _prefetched_prices_ctx.set(cache)
+    return cache
+
+
+def _get_prefetched_price_cache() -> Dict[Tuple[str, date], PrefetchedPrice]:
+    cache = _prefetched_prices_ctx.get()
+    if cache is None:
+        cache = {}
+        _prefetched_prices_ctx.set(cache)
+    return cache
+
+
+def _prefetch_cache_key(symbol: str, as_of_date: date) -> Tuple[str, date]:
+    return (symbol.upper().strip(), as_of_date)
+
+
+async def fetch_with_rate_limit(session: aiohttp.ClientSession, urls: List[str]) -> List[Dict[str, Any]]:
+    results: List[Dict[str, Any]] = []
+    if not urls:
+        return results
+
+    start = time.time()
+
+    for i in range(0, len(urls), MAX_CALLS_PER_MIN):
+        batch = urls[i : i + MAX_CALLS_PER_MIN]
+        tasks = [session.get(url, timeout=15) for url in batch]
+        responses = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for resp in responses:
+            if isinstance(resp, Exception):
+                results.append({"error": str(resp)})
+                continue
+
+            try:
+                if resp.status >= 400:
+                    body = await resp.text()
+                    results.append({"error": f"{resp.status}: {body.strip()}"})
+                else:
+                    data = await resp.json(content_type=None)
+                    results.append(data)
+            except Exception as exc:  # noqa: BLE001
+                try:
+                    snippet = await resp.text()
+                except Exception as inner_exc:  # noqa: BLE001
+                    snippet = f"<unavailable: {inner_exc}>"
+                results.append({"error": f"{exc}: {snippet[:200]}".strip()})
+            finally:
+                resp.release()
+
+        if i + MAX_CALLS_PER_MIN < len(urls):
+            elapsed = time.time() - start
+            sleep_for = max(0.0, PAUSE_SECONDS - elapsed)
+            if sleep_for > 0:
+                print(f"Sleeping {sleep_for:.1f}s to respect rate limits...")
+                await asyncio.sleep(sleep_for)
+            start = time.time()
+
+    return results
+
+
+def _extract_close_from_timeseries(
+    time_series: Dict[str, Any], as_of_date: date, *, lookback_days: int = 120
+) -> Tuple[Optional[float], Optional[date]]:
+    if not isinstance(time_series, dict):
+        return None, None
+
+    start_date = as_of_date - timedelta(days=max(lookback_days, 0))
+    latest_close: Optional[float] = None
+    latest_date: Optional[date] = None
+
+    for date_str, datapoint in sorted(time_series.items(), reverse=True):
+        try:
+            entry_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+        except ValueError:
+            continue
+        if entry_date > as_of_date or entry_date < start_date:
+            continue
+        if not isinstance(datapoint, dict):
+            continue
+        close_str = (
+            datapoint.get("5. adjusted close")
+            or datapoint.get("4. close")
+            or datapoint.get("4. Close")
+        )
+        if close_str is None:
+            continue
+        try:
+            latest_close = float(close_str)
+        except (TypeError, ValueError):
+            continue
+        latest_date = entry_date
+        break
+
+    return latest_close, latest_date
+
+
+async def _prefetch_alpha_vantage_prices(tickers: Iterable[str], as_of_date: date) -> None:
+    if not API_KEY:
+        return
+
+    cache = _get_prefetched_price_cache()
+    normalized: List[str] = []
+    for ticker in tickers:
+        symbol = (ticker or "").upper().strip()
+        if not symbol:
+            continue
+        key = _prefetch_cache_key(symbol, as_of_date)
+        if key in cache:
+            continue
+        normalized.append(symbol)
+
+    if not normalized:
+        return
+
+    base_url = ALPHA_VANTAGE_BASE_URL.rstrip("/")
+    urls = [
+        f"{base_url}/query?function=TIME_SERIES_DAILY_ADJUSTED&symbol={symbol}&outputsize=compact&apikey={API_KEY}"
+        for symbol in normalized
+    ]
+
+    timeout = aiohttp.ClientTimeout(total=20)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        responses = await fetch_with_rate_limit(session, urls)
+
+    for symbol, payload in zip(normalized, responses):
+        warnings: List[str] = []
+        price: Optional[float] = None
+        price_date: Optional[date] = None
+
+        if isinstance(payload, dict):
+            helper_error = payload.get("error")
+            if isinstance(helper_error, str):
+                warnings.append(helper_error)
+
+            note = payload.get("Note")
+            if note:
+                warnings.append(note)
+
+            error_message = payload.get("Error Message")
+            if error_message:
+                warnings.append(error_message)
+
+            time_series = payload.get("Time Series (Daily)")
+            if isinstance(time_series, dict):
+                price, price_date = _extract_close_from_timeseries(time_series, as_of_date)
+            elif not warnings:
+                warnings.append("Alpha Vantage response missing time series data.")
+        else:
+            warnings.append("Non-JSON response returned from Alpha Vantage.")
+
+        cache[_prefetch_cache_key(symbol, as_of_date)] = (price, price_date, warnings)
 
 @dataclass
 class CompanyMetrics:
@@ -85,10 +255,21 @@ def _fetch_market_price(ticker_symbol: str, as_of_date: date) -> Tuple[Optional[
     warnings: List[str] = []
     price_value: Optional[float] = None
     price_date: Optional[date] = None
+
+    normalized_symbol = ticker_symbol.upper().strip()
+    prefetched_cache = _prefetched_prices_ctx.get()
+    if prefetched_cache:
+        cached = prefetched_cache.get(_prefetch_cache_key(normalized_symbol, as_of_date))
+        if cached:
+            cached_price, cached_date, cached_warnings = cached
+            warnings.extend(cached_warnings)
+            if cached_price is not None and cached_date is not None:
+                return cached_price, cached_date, warnings
+
     client = get_alpha_vantage_client()
     try:
         close_value, close_date = client.get_daily_close(
-            ticker_symbol,
+            normalized_symbol,
             as_of_date,
             lookback_days=120,
         )
@@ -122,6 +303,13 @@ def _fetch_market_price(ticker_symbol: str, as_of_date: date) -> Tuple[Optional[
                 warnings.append("Polygon aggregates did not provide price data on or before the requested date.")
         except Exception as exc:  # noqa: BLE001
             warnings.append(f"Polygon fallback failed: {exc}")
+
+    if prefetched_cache is not None:
+        prefetched_cache[_prefetch_cache_key(normalized_symbol, as_of_date)] = (
+            price_value,
+            price_date,
+            list(warnings),
+        )
 
     return price_value, price_date, warnings
 
@@ -340,6 +528,7 @@ async def _gather_fund_metrics(
 
         metrics_map: Dict[str, CompanyValuation] = {}
         if symbols_to_fetch:
+            await _prefetch_alpha_vantage_prices(symbols_to_fetch.keys(), as_of_date)
             fetched_metrics = await _gather_company_metrics(list(symbols_to_fetch.values()), as_of_date)
             metrics_map = {valuation.ticker.upper(): valuation for valuation in fetched_metrics}
 
@@ -431,10 +620,15 @@ async def _gather_fund_metrics(
 
 
 async def analyze_portfolio(request: ValuationRequest) -> ValuationResponse:
-    portfolio_results, fund_results = await asyncio.gather(
-        _gather_company_metrics(request.portfolio, request.as_of_date),
-        _gather_fund_metrics(request.funds, request.as_of_date),
-    )
+    _reset_prefetched_price_cache()
+    initial_prefetch: List[str] = [
+        holding.ticker for holding in request.portfolio
+    ] + [fund.ticker for fund in request.funds]
+    await _prefetch_alpha_vantage_prices(initial_prefetch, request.as_of_date)
+
+    portfolio_coro = _gather_company_metrics(request.portfolio, request.as_of_date)
+    funds_coro = _gather_fund_metrics(request.funds, request.as_of_date)
+    portfolio_results, fund_results = await asyncio.gather(portfolio_coro, funds_coro)
     return ValuationResponse(
         generated_at=datetime.utcnow(),
         as_of_date=request.as_of_date,
