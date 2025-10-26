@@ -1053,6 +1053,30 @@ export default function Home() {
                 We pull the latest filings and closing prices on or before this
                 date.
               </p>
+              <p className="text-sm text-slate-400">
+                We pull the latest filings and closing prices on or before this
+                date.
+              </p>
+            </div>
+
+            {/* Health check button */}
+            <div className="mt-2">
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const res = await fetch(`${API_BASE_URL}/health`);
+                    const data = await res.json();
+                    alert(`✅ ${data.message || "Backend reachable!"}`);
+                  } catch (err) {
+                    alert("❌ Could not reach backend. Check API URL or CORS.");
+                    console.error(err);
+                  }
+                }}
+                className="mt-2 rounded-md border border-sky-500/60 px-3 py-2 text-xs font-semibold text-sky-300 transition hover:border-sky-300 hover:text-sky-200"
+              >
+                Check Backend Connection
+              </button>
             </div>
 
             <div className="flex flex-wrap gap-2 rounded-xl border border-slate-800 bg-slate-950/60 p-1 text-sm font-semibold text-slate-300">
@@ -1489,6 +1513,8 @@ export default function Home() {
                     });
 
                     return (
+
+
                       <div
                         key={fund.ticker}
                         className="flex flex-col gap-4 rounded-xl border border-slate-800 bg-slate-900/50 p-4"
