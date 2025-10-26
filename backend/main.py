@@ -14,7 +14,7 @@ app = FastAPI(title="Agentic Financial Tracker",
 # Allow frontend to talk to backend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://agentic-financial-tracker-for-zakat.vercel.app/"],  # Change to ["http://localhost:3000"] if needed
+    allow_origins=["http://localhost:3000"],  # Change to ["http://localhost:3000"] if needed
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -23,7 +23,6 @@ app.add_middleware(
 @app.get("/")
 def read_root():
     return {"message": "Backend is running!"}
-
 
 @app.post("/valuation", response_model=ValuationResponse)
 async def calculate_valuation(payload: ValuationRequest) -> ValuationResponse:
@@ -41,3 +40,7 @@ def clear_caches() -> dict[str, str]:
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"Cache clearing failed: {exc}") from exc
     return {"status": "ok", "detail": "Service caches cleared."}
+
+@app.get("/health")
+async def health_check():
+    return {"status": "ok", "message": "Backend is reachable from Vercel"}
