@@ -145,15 +145,16 @@ async def _keepalive_worker(url: str, stop_event: asyncio.Event) -> None:
         async with aiohttp.ClientSession(timeout=timeout) as session:
             while not stop_event.is_set():
                 try:
-                    await asyncio.wait_for(stop_event.wait(), KEEPALIVE_INTERVAL.total_seconds())
-                    break
-                except asyncio.TimeoutError:
-                    pass
-                try:
                     async with session.get(url) as response:
                         await response.read()
                 except Exception as exc:  # noqa: BLE001
                     print(f"Keepalive ping failed: {exc}")
+                try:
+                    await asyncio.wait_for(stop_event.wait(), KEEPALIVE_INTERVAL.total_seconds())
+                except asyncio.TimeoutError:
+                    continue
+                else:
+                    break
     except asyncio.CancelledError:
         raise
 
