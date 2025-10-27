@@ -30,7 +30,7 @@ class AlphaVantageClient:
         timeout: float = 10.0,
         max_calls_per_minute: int = 5,
         max_retries: int = 3,
-        retry_delay_seconds: float = 16.0,
+        retry_delay_seconds: float = 6.0,
     ) -> None:
         self.api_key = api_key or os.getenv("ALPHA_VANTAGE_API_KEY")
         if not self.api_key:

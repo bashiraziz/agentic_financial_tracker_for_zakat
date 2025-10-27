@@ -4,7 +4,6 @@ import asyncio
 import csv
 import io
 import os
-import time
 from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -39,8 +38,7 @@ from backend.services.alpha_vantage_client import (
 from backend.services.sec_holdings import FundHoldingsResult, get_sec_holdings, SecHoldingsError
 from backend.services.polygon_client import get_polygon_client
 
-MAX_CALLS_PER_MIN = 5
-PAUSE_SECONDS = 60
+REQUEST_PAUSE_SECONDS = 13
 API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY")
 ALPHA_VANTAGE_BASE_URL = os.getenv("ALPHA_VANTAGE_BASE_URL", "https://www.alphavantage.co")
 
@@ -99,18 +97,12 @@ async def fetch_with_rate_limit(session: aiohttp.ClientSession, urls: List[str])
     if not urls:
         return results
 
-    start = time.time()
-
-    for i in range(0, len(urls), MAX_CALLS_PER_MIN):
-        batch = urls[i : i + MAX_CALLS_PER_MIN]
-        tasks = [session.get(url, timeout=15) for url in batch]
-        responses = await asyncio.gather(*tasks, return_exceptions=True)
-
-        for resp in responses:
-            if isinstance(resp, Exception):
-                results.append({"error": str(resp)})
-                continue
-
+    for index, url in enumerate(urls):
+        try:
+            resp = await session.get(url, timeout=15)
+        except Exception as exc:  # noqa: BLE001
+            results.append({"error": str(exc)})
+        else:
             try:
                 if resp.status >= 400:
                     body = await resp.text()
@@ -127,13 +119,9 @@ async def fetch_with_rate_limit(session: aiohttp.ClientSession, urls: List[str])
             finally:
                 resp.release()
 
-        if i + MAX_CALLS_PER_MIN < len(urls):
-            elapsed = time.time() - start
-            sleep_for = max(0.0, PAUSE_SECONDS - elapsed)
-            if sleep_for > 0:
-                print(f"Sleeping {sleep_for:.1f}s to respect rate limits...")
-                await asyncio.sleep(sleep_for)
-            start = time.time()
+        if index < len(urls) - 1:
+            print(f"Sleeping {REQUEST_PAUSE_SECONDS}s between Alpha Vantage requests...")
+            await asyncio.sleep(REQUEST_PAUSE_SECONDS)
 
     return results
 
