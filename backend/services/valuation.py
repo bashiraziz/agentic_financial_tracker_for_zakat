@@ -41,6 +41,7 @@ from backend.services.polygon_client import get_polygon_client
 REQUEST_PAUSE_SECONDS = 13
 KEEPALIVE_URL = os.getenv("KEEPALIVE_URL")
 KEEPALIVE_INTERVAL = timedelta(minutes=5)
+KEEPALIVE_LOG_PREFIX = "[keepalive]"
 API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY")
 ALPHA_VANTAGE_BASE_URL = os.getenv("ALPHA_VANTAGE_BASE_URL", "https://www.alphavantage.co")
 
@@ -147,6 +148,10 @@ async def _keepalive_worker(url: str, stop_event: asyncio.Event) -> None:
                 try:
                     async with session.get(url) as response:
                         await response.read()
+                        print(
+                            f"{KEEPALIVE_LOG_PREFIX} ping {response.status} at "
+                            f"{datetime.utcnow().isoformat(sep=' ', timespec='seconds')} -> {url}"
+                        )
                 except Exception as exc:  # noqa: BLE001
                     print(f"Keepalive ping failed: {exc}")
                 try:
@@ -642,16 +647,16 @@ async def _gather_fund_metrics(
 
 async def analyze_portfolio(request: ValuationRequest) -> ValuationResponse:
     _reset_prefetched_price_cache()
-    initial_prefetch: List[str] = [
-        holding.ticker for holding in request.portfolio
-    ] + [fund.ticker for fund in request.funds]
-    await _prefetch_alpha_vantage_prices(initial_prefetch, request.as_of_date)
-
     keepalive_url = _normalize_keepalive_url(KEEPALIVE_URL)
     stop_event = asyncio.Event()
     keepalive_task: Optional[asyncio.Task] = None
     if keepalive_url:
         keepalive_task = asyncio.create_task(_keepalive_worker(keepalive_url, stop_event))
+
+    initial_prefetch: List[str] = [
+        holding.ticker for holding in request.portfolio
+    ] + [fund.ticker for fund in request.funds]
+    await _prefetch_alpha_vantage_prices(initial_prefetch, request.as_of_date)
 
     try:
         portfolio_coro = _gather_company_metrics(request.portfolio, request.as_of_date)
