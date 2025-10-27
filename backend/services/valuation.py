@@ -39,6 +39,8 @@ from backend.services.sec_holdings import FundHoldingsResult, get_sec_holdings, 
 from backend.services.polygon_client import get_polygon_client
 
 REQUEST_PAUSE_SECONDS = 13
+KEEPALIVE_URL = os.getenv("KEEPALIVE_URL")
+KEEPALIVE_INTERVAL = timedelta(minutes=5)
 API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY")
 ALPHA_VANTAGE_BASE_URL = os.getenv("ALPHA_VANTAGE_BASE_URL", "https://www.alphavantage.co")
 
@@ -124,6 +126,36 @@ async def fetch_with_rate_limit(session: aiohttp.ClientSession, urls: List[str])
             await asyncio.sleep(REQUEST_PAUSE_SECONDS)
 
     return results
+
+
+def _normalize_keepalive_url(raw_url: Optional[str]) -> Optional[str]:
+    url = (raw_url or "").strip()
+    if not url:
+        return None
+    if not url.startswith(("http://", "https://")):
+        url = f"https://{url.lstrip('/')}"
+    return url
+
+
+async def _keepalive_worker(url: str, stop_event: asyncio.Event) -> None:
+    if not url:
+        return
+    timeout = aiohttp.ClientTimeout(total=10)
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            while not stop_event.is_set():
+                try:
+                    await asyncio.wait_for(stop_event.wait(), KEEPALIVE_INTERVAL.total_seconds())
+                    break
+                except asyncio.TimeoutError:
+                    pass
+                try:
+                    async with session.get(url) as response:
+                        await response.read()
+                except Exception as exc:  # noqa: BLE001
+                    print(f"Keepalive ping failed: {exc}")
+    except asyncio.CancelledError:
+        raise
 
 
 def _extract_close_from_timeseries(
@@ -614,12 +646,26 @@ async def analyze_portfolio(request: ValuationRequest) -> ValuationResponse:
     ] + [fund.ticker for fund in request.funds]
     await _prefetch_alpha_vantage_prices(initial_prefetch, request.as_of_date)
 
-    portfolio_coro = _gather_company_metrics(request.portfolio, request.as_of_date)
-    funds_coro = _gather_fund_metrics(request.funds, request.as_of_date)
-    portfolio_results, fund_results = await asyncio.gather(portfolio_coro, funds_coro)
-    return ValuationResponse(
-        generated_at=datetime.utcnow(),
-        as_of_date=request.as_of_date,
-        portfolio=portfolio_results,
-        funds=fund_results,
-    )
+    keepalive_url = _normalize_keepalive_url(KEEPALIVE_URL)
+    stop_event = asyncio.Event()
+    keepalive_task: Optional[asyncio.Task] = None
+    if keepalive_url:
+        keepalive_task = asyncio.create_task(_keepalive_worker(keepalive_url, stop_event))
+
+    try:
+        portfolio_coro = _gather_company_metrics(request.portfolio, request.as_of_date)
+        funds_coro = _gather_fund_metrics(request.funds, request.as_of_date)
+        portfolio_results, fund_results = await asyncio.gather(portfolio_coro, funds_coro)
+        return ValuationResponse(
+            generated_at=datetime.utcnow(),
+            as_of_date=request.as_of_date,
+            portfolio=portfolio_results,
+            funds=fund_results,
+        )
+    finally:
+        stop_event.set()
+        if keepalive_task is not None:
+            try:
+                await keepalive_task
+            except Exception:
+                pass
