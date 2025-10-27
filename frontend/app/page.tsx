@@ -4,6 +4,7 @@
 import type { ReactNode } from "react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import ReactMarkdown, { type Components as MarkdownComponents } from "react-markdown";
+import { useTheme, type ThemeMode } from "@/components/theme-provider";
 
 type CompanyValuation = {
   ticker: string;
@@ -234,6 +235,9 @@ export default function Home() {
   const [instructionsContent, setInstructionsContent] = useState<string | null>(null);
   const [instructionsLoading, setInstructionsLoading] = useState(false);
   const [instructionsError, setInstructionsError] = useState<string | null>(null);
+  const [serviceDetailsOpen, setServiceDetailsOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { theme, setTheme } = useTheme();
 
   useEffect(() => {
     if (!instructionsOpen || instructionsContent !== null) {
@@ -322,6 +326,20 @@ export default function Home() {
 
   const joinClasses = (...classes: (string | undefined)[]) =>
     classes.filter(Boolean).join(" ");
+
+  const themeActiveClasses: Record<ThemeMode, string> = {
+    light: "bg-sky-500 text-slate-950 shadow-sm shadow-sky-500/40",
+    mid: "bg-amber-400 text-slate-950 shadow-sm shadow-amber-500/40",
+    dark: "bg-slate-100 text-slate-900 shadow-sm shadow-slate-100/30",
+  };
+
+  const themeButtonClasses = (mode: ThemeMode) =>
+    joinClasses(
+      "flex-1 rounded-full px-3 py-1.5 text-xs font-semibold transition",
+      theme === mode
+        ? themeActiveClasses[mode]
+        : "text-slate-300 hover:text-slate-100",
+    );
 
   const computePortfolioZakatableAmount = (company: CompanyValuation) => {
     if (!company.ticker) {
@@ -961,106 +979,89 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
-      <main className="mx-auto flex max-w-6xl flex-col gap-10 px-6 pb-24 pt-10">
-        <header className="flex flex-col gap-3">
-          <h1 className="text-3xl font-semibold tracking-tight lg:text-4xl">
-          Zakatable Assets in Stocks, ETFs, and Funds
-          </h1>
-          <p className="max-w-3xl text-sm text-slate-300 lg:text-base">
-            Assess direct holdings and look-through exposures. Provide an as-of
-            date to align cash, receivables, inventory, and market pricing with
-            your reporting snapshot.
-          </p>
-        </header>
-
-        <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6 shadow-lg shadow-slate-950/40">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-col gap-1">
-              <h2 className="text-lg font-semibold text-slate-100">Instructions & Data Pipeline</h2>
-              <p className="text-xs text-slate-400">
-                Learn how to use the tool and how we source CRI metrics, fund holdings, and zakat estimates.
-              </p>
+      <main className="mx-auto flex max-w-6xl flex-col gap-8 px-6 pb-24 pt-10 lg:flex-row lg:gap-12">
+        <div className="flex flex-1 flex-col gap-10">
+          <div className="flex flex-col gap-6">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <header className="flex flex-col gap-3">
+                <h1 className="text-3xl font-semibold tracking-tight lg:text-4xl">
+                  Zakatable Assets in Stocks, ETFs, and Funds
+                </h1>
+                <p className="max-w-3xl text-sm text-slate-300 lg:text-base">
+                  Assess direct holdings and look-through exposures. Provide an as-of
+                  date to align cash, receivables, inventory, and market pricing with
+                  your reporting snapshot.
+                </p>
+              </header>
+              <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:gap-4">
+                <div className="text-xs text-slate-300">
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                    Theme
+                  </span>
+                  <div
+                    role="group"
+                    aria-label="Color theme"
+                    className="mt-2 flex rounded-full border border-slate-700 bg-slate-950/60 p-1"
+                  >
+                    <button
+                      type="button"
+                      aria-pressed={theme === "light"}
+                      onClick={() => setTheme("light")}
+                      className={themeButtonClasses("light")}
+                    >
+                      Light
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={theme === "mid"}
+                      onClick={() => setTheme("mid")}
+                      className={themeButtonClasses("mid")}
+                    >
+                      Mid
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={theme === "dark"}
+                      onClick={() => setTheme("dark")}
+                      className={themeButtonClasses("dark")}
+                    >
+                      Dark
+                    </button>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSidebarOpen((open) => !open)}
+                  className="rounded-md border border-slate-700 px-4 py-2 text-xs font-semibold text-slate-200 transition hover:border-sky-400 hover:text-sky-200"
+                  aria-expanded={sidebarOpen}
+                >
+                  {sidebarOpen ? "Hide info panel" : "Show info panel"}
+                </button>
+              </div>
             </div>
-            <button
-              type="button"
-              onClick={() => {
-                setInstructionsOpen((previous) => {
-                  const next = !previous;
-                  if (!previous) {
-                    setInstructionsError(null);
-                  }
-                  return next;
-                });
-              }}
-              className="rounded-md border border-slate-700 px-4 py-2 text-xs font-semibold text-slate-200 transition hover:border-sky-400 hover:text-sky-200"
-            >
-              {instructionsOpen ? "Hide Instructions" : "View Instructions"}
-            </button>
           </div>
-          {instructionsOpen && (
-            <div className="mt-4 rounded-xl border border-slate-800/70 bg-slate-950/70 p-4 text-sm text-slate-200">
-              {instructionsLoading && (
-                <div className="mb-3 text-xs text-slate-400">Loading guide…</div>
-              )}
-              {instructionsError && (
-                <div className="mb-3 flex flex-wrap items-center gap-3 text-xs text-amber-300">
-                  <span>{instructionsError}</span>
-                  <button
-                    type="button"
-                    className="rounded-md border border-amber-500/60 px-3 py-1 text-[11px] font-semibold text-amber-200 transition hover:border-amber-400 hover:text-amber-100"
-                    onClick={() => {
-                      setInstructionsError(null);
-                      setInstructionsContent(null);
-                    }}
-                  >
-                    Try again
-                  </button>
-                    <a
-                    href="/usage-guide.md"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="rounded-md border border-slate-700 px-2 py-1 text-[11px] font-semibold text-slate-200 transition hover:border-sky-400 hover:text-sky-200"
-                  >
-                    Open in new tab
-                  </a>
-                </div>
-              )}
-              {instructionsContent && (
-                <div className="max-h-[480px] overflow-y-auto rounded-lg border border-slate-800/50 bg-slate-900/70 p-4">
-                  <ReactMarkdown components={markdownComponents}>
-                    {instructionsContent}
-                  </ReactMarkdown>
-                </div>
-              )}
-            </div>
-          )}
-        </section>
 
         <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-6 shadow-lg shadow-slate-950/40">
           <form className="flex flex-col gap-8" onSubmit={handlePortfolioSubmit}>
-            <div className="grid gap-4 md:grid-cols-[240px_1fr] md:items-end">
-              <label className="flex flex-col gap-2 text-sm font-medium text-slate-200">
-                As-of date
-                <input
-                  className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-sky-400 focus:ring-2 focus:ring-sky-400/40"
-                  type="date"
-                  value={asOfDate}
-                  onChange={(event) => setAsOfDate(event.target.value)}
-                  max={new Date().toISOString().slice(0, 10)}
-                />
-              </label>
-              <p className="text-sm text-slate-400">
-                We pull the latest filings and closing prices on or before this
-                date.
-              </p>
-              <p className="text-sm text-slate-400">
-                We pull the latest filings and closing prices on or before this
-                date.
-              </p>
-            </div>
+            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+              <div className="grid flex-1 gap-4 md:grid-cols-[240px_1fr] md:items-end">
+                <label className="flex flex-col gap-2 text-sm font-medium text-slate-200">
+                  As-of date
+                  <input
+                    className="rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-sky-400 focus:ring-2 focus:ring-sky-400/40"
+                    type="date"
+                    value={asOfDate}
+                    onChange={(event) => setAsOfDate(event.target.value)}
+                    max={new Date().toISOString().slice(0, 10)}
+                  />
+                </label>
+                <p className="text-sm text-slate-400">
+                  We pull the latest filings and closing prices on or before this
+                  date.
+                </p>
+              </div>
 
-            {/* Health check button */}
-            <div className="mt-2">
+              {/* Health check button */}
               <button
                 type="button"
                 onClick={async () => {
@@ -1073,7 +1074,7 @@ export default function Home() {
                     console.error(err);
                   }
                 }}
-                className="mt-2 rounded-md border border-sky-500/60 px-3 py-2 text-xs font-semibold text-sky-300 transition hover:border-sky-300 hover:text-sky-200"
+                className="w-full rounded-md border border-sky-500/60 px-3 py-2 text-xs font-semibold text-sky-300 transition hover:border-sky-300 hover:text-sky-200 md:w-auto"
               >
                 Check Backend Connection
               </button>
@@ -1679,6 +1680,149 @@ export default function Home() {
               ? "Add company tickers to see portfolio CRI results."
               : "Add fund tickers to see fund holdings and CRI metrics."}
           </div>
+        )}
+        </div>
+
+        {sidebarOpen && (
+        <aside className="flex flex-col gap-6 lg:w-64 lg:shrink-0">
+          <section className="rounded-2xl border border-slate-800 bg-slate-950/60 p-5 text-xs text-slate-300 shadow-lg shadow-slate-950/30">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              Theme
+            </span>
+            <div
+              role="group"
+              aria-label="Color theme"
+              className="mt-3 flex rounded-full border border-slate-700 bg-slate-950/60 p-1"
+            >
+              <button
+                type="button"
+                aria-pressed={theme === "light"}
+                onClick={() => setTheme("light")}
+                className={themeButtonClasses("light")}
+              >
+                Light
+              </button>
+              <button
+                type="button"
+                aria-pressed={theme === "mid"}
+                onClick={() => setTheme("mid")}
+                className={themeButtonClasses("mid")}
+              >
+                Mid
+              </button>
+              <button
+                type="button"
+                aria-pressed={theme === "dark"}
+                onClick={() => setTheme("dark")}
+                className={themeButtonClasses("dark")}
+              >
+                Dark
+              </button>
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-5 text-sm text-amber-100 shadow-lg shadow-amber-900/20">
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-amber-200">
+                <span className="text-base font-semibold uppercase tracking-wide text-amber-100">
+                  Service Limits
+                </span>
+                <span className="rounded-full bg-amber-400/20 px-2 py-0.5 text-[11px] font-semibold text-amber-100">
+                  Heads up
+                </span>
+              </div>
+              <p className="text-[13px] leading-relaxed text-amber-100">
+                We use Alpha Vantage&apos;s free API tier, which allows only 5 calls per minute.
+                To avoid getting rate-limited, the app pauses briefly every five requests&mdash;
+                especially noticeable while expanding funds/ETFs because each holding triggers its own call.
+              </p>
+              <p className="text-[13px] leading-relaxed text-amber-100">
+                For faster refreshes you can swap in your own premium key in the backend
+                environment variables.
+              </p>
+              <button
+                type="button"
+                onClick={() => setServiceDetailsOpen((open) => !open)}
+                className="w-full rounded-md border border-amber-400/50 px-4 py-2 text-xs font-semibold text-amber-100 transition hover:border-amber-300 hover:text-white"
+                aria-expanded={serviceDetailsOpen}
+              >
+                {serviceDetailsOpen ? "Hide platform & services" : "View platform & services"}
+              </button>
+            </div>
+            {serviceDetailsOpen && (
+              <div className="mt-4 rounded-xl border border-amber-400/40 bg-amber-400/10 p-4 text-[13px] text-amber-50">
+                <p className="mb-2 font-semibold text-amber-100">What powers this app:</p>
+                <ul className="list-disc space-y-1 pl-5 text-amber-50">
+                  <li>Market & fundamental data: Alpha Vantage (free tier, 5 calls/min, 500/day).</li>
+                  <li>Backend service: FastAPI app (`backend/main.py`) that orchestrates data pulls and valuation logic.</li>
+                  <li>Frontend experience: Next.js 15 + React 19 UI (this dashboard) with Tailwind CSS 4.</li>
+                  <li>Local orchestration: Docker Compose option for running backend + frontend together.</li>
+                </ul>
+              </div>
+            )}
+          </section>
+
+          <section className="rounded-2xl border border-slate-800 bg-slate-900/70 p-5 shadow-lg shadow-slate-950/40">
+            <div className="flex flex-col gap-2">
+              <h2 className="text-base font-semibold text-slate-100">Instructions & Data Pipeline</h2>
+              <p className="text-xs text-slate-400">
+                Learn how to use the tool and how we source CRI metrics, fund holdings, and zakat estimates.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setInstructionsOpen((previous) => {
+                  const next = !previous;
+                  if (!previous) {
+                    setInstructionsError(null);
+                  }
+                  return next;
+                });
+              }}
+              className="mt-4 w-full rounded-md border border-slate-700 px-4 py-2 text-xs font-semibold text-slate-200 transition hover:border-sky-400 hover:text-sky-200"
+            >
+              {instructionsOpen ? "Hide Instructions" : "View Instructions"}
+            </button>
+            {instructionsOpen && (
+              <div className="mt-4 rounded-xl border border-slate-800/70 bg-slate-950/70 p-4 text-sm text-slate-200">
+                {instructionsLoading && (
+                  <div className="mb-3 text-xs text-slate-400">Loading guide…</div>
+                )}
+                {instructionsError && (
+                  <div className="mb-3 flex flex-wrap items-center gap-3 text-xs text-amber-300">
+                    <span>{instructionsError}</span>
+                    <button
+                      type="button"
+                      className="rounded-md border border-amber-500/60 px-3 py-1 text-[11px] font-semibold text-amber-200 transition hover:border-amber-400 hover:text-amber-100"
+                      onClick={() => {
+                        setInstructionsError(null);
+                        setInstructionsContent(null);
+                      }}
+                    >
+                      Try again
+                    </button>
+                    <a
+                      href="/usage-guide.md"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="rounded-md border border-slate-700 px-2 py-1 text-[11px] font-semibold text-slate-200 transition hover:border-sky-400 hover:text-sky-200"
+                    >
+                      Open in new tab
+                    </a>
+                  </div>
+                )}
+                {instructionsContent && (
+                  <div className="max-h-[360px] overflow-y-auto rounded-lg border border-slate-800/50 bg-slate-900/70 p-4">
+                    <ReactMarkdown components={markdownComponents}>
+                      {instructionsContent}
+                    </ReactMarkdown>
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
+        </aside>
         )}
       </main>
     </div>
