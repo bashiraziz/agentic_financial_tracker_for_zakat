@@ -236,7 +236,7 @@ export default function Home() {
   const [instructionsLoading, setInstructionsLoading] = useState(false);
   const [instructionsError, setInstructionsError] = useState<string | null>(null);
   const [serviceDetailsOpen, setServiceDetailsOpen] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const { theme, setTheme } = useTheme();
 
   useEffect(() => {
