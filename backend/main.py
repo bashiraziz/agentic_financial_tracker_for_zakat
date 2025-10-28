@@ -71,10 +71,7 @@ def clear_caches() -> dict[str, str]:
 async def health_check():
     return {"status": "ok", "message": "Backend is reachable from Vercel"}
 
-# added the below to fix the health check issue
-# import os
-# import uvicorn
-
-# if __name__ == "__main__":
-#     port = int(os.getenv("PORT", 8000))
-#     uvicorn.run("backend.main:app", host="0.0.0.0", port=port)
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    from fastapi.responses import Response
+    return Response(status_code=204)
