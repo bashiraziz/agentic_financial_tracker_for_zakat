@@ -19,7 +19,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://agentic-financial-tracker-for-zakat.vercel.app",  # your Vercel production domain
 
-    "http://localhost:3000"],  # for local dev],  # Change to ["http://localhost:3000"] if needed
+    "http://localhost:3000","healthcheck.railway.app"],  # for local dev],  # Change to ["http://localhost:3000"] if needed
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
