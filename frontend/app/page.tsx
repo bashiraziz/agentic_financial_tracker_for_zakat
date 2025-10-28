@@ -327,6 +327,66 @@ export default function Home() {
   const joinClasses = (...classes: (string | undefined)[]) =>
     classes.filter(Boolean).join(" ");
 
+  const LoadingSpinner = ({ className = "h-4 w-4" }: { className?: string }) => (
+    <svg
+      className={joinClasses("animate-spin text-sky-400", className)}
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+    >
+      <circle
+        className="opacity-25"
+        cx="12"
+        cy="12"
+        r="10"
+        stroke="currentColor"
+        strokeWidth="4"
+        fill="none"
+      />
+      <path
+        className="opacity-75"
+        fill="currentColor"
+        d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+      />
+    </svg>
+  );
+
+  const LoadingBanner = ({
+    message,
+    accent,
+  }: {
+    message: string;
+    accent: "sky" | "emerald";
+  }) => {
+    const accents = {
+      sky: {
+        border: "border-sky-500/40",
+        background: "bg-sky-500/10",
+        text: "text-sky-100",
+        spinner: "text-sky-200",
+      },
+      emerald: {
+        border: "border-emerald-400/40",
+        background: "bg-emerald-400/10",
+        text: "text-emerald-100",
+        spinner: "text-emerald-200",
+      },
+    } as const;
+    const style = accents[accent];
+
+    return (
+      <div
+        className={joinClasses(
+          "mt-3 flex items-center gap-3 rounded-lg border px-4 py-3 shadow-inner shadow-slate-950/40",
+          style.border,
+          style.background,
+        )}
+      >
+        <LoadingSpinner className={joinClasses("h-5 w-5", style.spinner)} />
+        <p className={joinClasses("text-sm font-medium", style.text)}>{message}</p>
+      </div>
+    );
+  };
+
   const themeActiveClasses: Record<ThemeMode, string> = {
     light: "bg-sky-500 text-slate-950 shadow-sm shadow-sky-500/40",
     mid: "bg-amber-400 text-slate-950 shadow-sm shadow-amber-500/40",
@@ -1068,9 +1128,9 @@ export default function Home() {
                   try {
                     const res = await fetch(`${API_BASE_URL}/health`);
                     const data = await res.json();
-                    alert(`✅ ${data.message || "Backend reachable!"}`);
+                    alert(`? ${data.message || "Backend reachable!"}`);
                   } catch (err) {
-                    alert("❌ Could not reach backend. Check API URL or CORS.");
+                    alert("? Could not reach backend. Check API URL or CORS.");
                     console.error(err);
                   }
                 }}
@@ -1187,8 +1247,21 @@ export default function Home() {
                   className="inline-flex w-full items-center justify-center rounded-lg bg-sky-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-60"
                   disabled={portfolioLoading}
                 >
-                  {portfolioLoading ? "Calculating..." : "Calculate Portfolio CRI"}
+                  {portfolioLoading ? (
+                    <span className="flex items-center gap-2">
+                      <LoadingSpinner />
+                      <span>Calculating...</span>
+                    </span>
+                  ) : (
+                    "Calculate Portfolio CRI"
+                  )}
                 </button>
+                {portfolioLoading && (
+                  <LoadingBanner
+                    message="Crunching company fundamentals and CRI ratios..."
+                    accent="sky"
+                  />
+                )}
               </div>
             )}
 
@@ -1253,8 +1326,21 @@ export default function Home() {
                   className="inline-flex w-full items-center justify-center rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
                   disabled={fundLoading}
                 >
-                  {fundLoading ? "Fetching holdings..." : "Fetch Fund Holdings"}
+                  {fundLoading ? (
+                    <span className="flex items-center gap-2">
+                      <LoadingSpinner className="h-4 w-4 text-emerald-100" />
+                      <span>Fetching holdings...</span>
+                    </span>
+                  ) : (
+                    "Fetch Fund Holdings"
+                  )}
                 </button>
+                {fundLoading && (
+                  <LoadingBanner
+                    message="Gathering fund holdings and refreshing prices..."
+                    accent="emerald"
+                  />
+                )}
               </div>
             )}
 
