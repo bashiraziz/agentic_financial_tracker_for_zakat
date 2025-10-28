@@ -1,4 +1,3 @@
-
 # Agentic Financial Tracker
 
 Multi-agent AI app using Codex, OpenAI Agents SDK, and Gemini.
