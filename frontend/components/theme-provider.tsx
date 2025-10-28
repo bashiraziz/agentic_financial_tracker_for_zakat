@@ -47,7 +47,12 @@ const applyThemeAttribute = (theme: Theme) => {
 };
 
 export const ThemeProvider = ({ children }: { children: ReactNode }) => {
-  const [theme, setThemeState] = useState<Theme>(() => getPreferredTheme());
+  const [theme, setThemeState] = useState<Theme>("dark");
+
+  useEffect(() => {
+    const preferred = getPreferredTheme();
+    setThemeState(preferred);
+  }, []);
 
   useEffect(() => {
     applyThemeAttribute(theme);

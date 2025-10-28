@@ -327,9 +327,38 @@ export default function Home() {
   const joinClasses = (...classes: (string | undefined)[]) =>
     classes.filter(Boolean).join(" ");
 
+  const themeAccent: Record<
+    ThemeMode,
+    {
+      spinner: string;
+      bannerBorder: string;
+      bannerBackground: string;
+      bannerText: string;
+    }
+  > = {
+    light: {
+      spinner: "text-sky-500",
+      bannerBorder: "border-sky-400/40",
+      bannerBackground: "bg-sky-50",
+      bannerText: "text-slate-700",
+    },
+    mid: {
+      spinner: "text-emerald-200",
+      bannerBorder: "border-emerald-400/40",
+      bannerBackground: "bg-emerald-500/10",
+      bannerText: "text-emerald-50",
+    },
+    dark: {
+      spinner: "text-sky-300",
+      bannerBorder: "border-sky-400/40",
+      bannerBackground: "bg-sky-500/10",
+      bannerText: "text-sky-100",
+    },
+  };
+
   const LoadingSpinner = ({ className = "h-4 w-4" }: { className?: string }) => (
     <svg
-      className={joinClasses("animate-spin text-sky-400", className)}
+      className={joinClasses("animate-spin", themeAccent[theme].spinner, className)}
       viewBox="0 0 24 24"
       aria-hidden="true"
     >
@@ -357,32 +386,45 @@ export default function Home() {
     message: string;
     accent: "sky" | "emerald";
   }) => {
-    const accents = {
-      sky: {
-        border: "border-sky-500/40",
-        background: "bg-sky-500/10",
-        text: "text-sky-100",
-        spinner: "text-sky-200",
-      },
-      emerald: {
-        border: "border-emerald-400/40",
-        background: "bg-emerald-400/10",
-        text: "text-emerald-100",
-        spinner: "text-emerald-200",
-      },
-    } as const;
-    const style = accents[accent];
+    const palette =
+      accent === "sky"
+        ? theme === "light"
+          ? {
+              border: "border-sky-300/60",
+              background: "bg-sky-50",
+              text: "text-slate-600",
+              spinner: "text-sky-500",
+            }
+          : {
+              border: "border-sky-500/40",
+              background: "bg-sky-500/10",
+              text: "text-sky-100",
+              spinner: "text-sky-200",
+            }
+        : theme === "light"
+        ? {
+            border: "border-emerald-300/60",
+            background: "bg-emerald-50",
+            text: "text-slate-600",
+            spinner: "text-emerald-500",
+          }
+        : {
+            border: "border-emerald-400/40",
+            background: "bg-emerald-400/10",
+            text: "text-emerald-100",
+            spinner: "text-emerald-200",
+          };
 
     return (
       <div
         className={joinClasses(
           "mt-3 flex items-center gap-3 rounded-lg border px-4 py-3 shadow-inner shadow-slate-950/40",
-          style.border,
-          style.background,
+          palette.border,
+          palette.background,
         )}
       >
-        <LoadingSpinner className={joinClasses("h-5 w-5", style.spinner)} />
-        <p className={joinClasses("text-sm font-medium", style.text)}>{message}</p>
+        <LoadingSpinner className={joinClasses("h-5 w-5", palette.spinner)} />
+        <p className={joinClasses("text-sm font-medium", palette.text)}>{message}</p>
       </div>
     );
   };
@@ -392,6 +434,31 @@ export default function Home() {
     mid: "bg-amber-400 text-slate-950 shadow-sm shadow-amber-500/40",
     dark: "bg-slate-100 text-slate-900 shadow-sm shadow-slate-100/30",
   };
+
+  const servicePalette = useMemo(() => {
+    if (theme === "light") {
+      return {
+        heading: "text-amber-700",
+        badgeBg: "bg-amber-200/60",
+        badgeText: "text-amber-800",
+        body: "text-amber-700",
+        button:
+          "border-amber-300 text-amber-700 hover:border-amber-400 hover:text-amber-900",
+        detailsContainer: "border-amber-200 bg-amber-100 text-amber-800",
+        list: "text-amber-700",
+      };
+    }
+    return {
+      heading: "text-amber-200",
+      badgeBg: "bg-amber-400/20",
+      badgeText: "text-amber-100",
+      body: "text-amber-100",
+      button:
+        "border-amber-400/50 text-amber-100 hover:border-amber-300 hover:text-white",
+      detailsContainer: "border-amber-400/40 bg-amber-400/10 text-amber-50",
+      list: "text-amber-50",
+    };
+  }, [theme]);
 
   const themeButtonClasses = (mode: ThemeMode) =>
     joinClasses(
@@ -1771,7 +1838,14 @@ export default function Home() {
 
         {sidebarOpen && (
         <aside className="flex flex-col gap-6 lg:w-64 lg:shrink-0">
-          <section className="rounded-2xl border border-slate-800 bg-slate-950/60 p-5 text-xs text-slate-300 shadow-lg shadow-slate-950/30">
+          <section
+            className={joinClasses(
+              "rounded-2xl border p-5 text-xs shadow-lg",
+              theme === "light"
+                ? "border-slate-200 bg-white/80 text-slate-600 shadow-slate-200/60"
+                : "border-slate-800 bg-slate-950/60 text-slate-300 shadow-slate-950/30",
+            )}
+          >
             <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
               Theme
             </span>
@@ -1807,38 +1881,66 @@ export default function Home() {
             </div>
           </section>
 
-          <section className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-5 text-sm text-amber-100 shadow-lg shadow-amber-900/20">
+          <section
+            className={joinClasses(
+              "rounded-2xl border p-5 text-sm shadow-lg",
+              theme === "light"
+                ? "border-amber-200 bg-amber-50 text-amber-700 shadow-amber-200/40"
+                : "border-amber-500/30 bg-amber-500/5 text-amber-100 shadow-amber-900/20",
+            )}
+          >
             <div className="space-y-3">
-              <div className="flex items-center gap-2 text-amber-200">
-                <span className="text-base font-semibold uppercase tracking-wide text-amber-100">
+              <div className="flex items-center gap-2">
+                <span
+                  className={joinClasses(
+                    "text-base font-semibold uppercase tracking-wide",
+                    servicePalette.heading,
+                  )}
+                >
                   Service Limits
                 </span>
-                <span className="rounded-full bg-amber-400/20 px-2 py-0.5 text-[11px] font-semibold text-amber-100">
+                <span
+                  className={joinClasses(
+                    "rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                    servicePalette.badgeBg,
+                    servicePalette.badgeText,
+                  )}
+                >
                   Heads up
                 </span>
               </div>
-              <p className="text-[13px] leading-relaxed text-amber-100">
+              <p className={joinClasses("text-[13px] leading-relaxed", servicePalette.body)}>
                 We use Alpha Vantage&apos;s free API tier, which allows only 5 calls per minute.
                 To avoid getting rate-limited, the app pauses briefly every five requests&mdash;
                 especially noticeable while expanding funds/ETFs because each holding triggers its own call.
               </p>
-              <p className="text-[13px] leading-relaxed text-amber-100">
+              <p className={joinClasses("text-[13px] leading-relaxed", servicePalette.body)}>
                 For faster refreshes you can swap in your own premium key in the backend
                 environment variables.
               </p>
               <button
                 type="button"
                 onClick={() => setServiceDetailsOpen((open) => !open)}
-                className="w-full rounded-md border border-amber-400/50 px-4 py-2 text-xs font-semibold text-amber-100 transition hover:border-amber-300 hover:text-white"
+                className={joinClasses(
+                  "w-full rounded-md border px-4 py-2 text-xs font-semibold transition",
+                  servicePalette.button,
+                )}
                 aria-expanded={serviceDetailsOpen}
               >
                 {serviceDetailsOpen ? "Hide platform & services" : "View platform & services"}
               </button>
             </div>
             {serviceDetailsOpen && (
-              <div className="mt-4 rounded-xl border border-amber-400/40 bg-amber-400/10 p-4 text-[13px] text-amber-50">
-                <p className="mb-2 font-semibold text-amber-100">What powers this app:</p>
-                <ul className="list-disc space-y-1 pl-5 text-amber-50">
+              <div
+                className={joinClasses(
+                  "mt-4 rounded-xl border p-4 text-[13px]",
+                  servicePalette.detailsContainer,
+                )}
+              >
+                <p className={joinClasses("mb-2 font-semibold", servicePalette.heading)}>
+                  What powers this app:
+                </p>
+                <ul className={joinClasses("list-disc space-y-1 pl-5", servicePalette.list)}>
                   <li>Market & fundamental data: Alpha Vantage (free tier, 5 calls/min, 500/day).</li>
                   <li>Backend service: FastAPI app (`backend/main.py`) that orchestrates data pulls and valuation logic.</li>
                   <li>Frontend experience: Next.js 15 + React 19 UI (this dashboard) with Tailwind CSS 4.</li>
