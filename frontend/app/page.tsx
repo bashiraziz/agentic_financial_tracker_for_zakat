@@ -131,6 +131,14 @@ const sanitizeCsvValue = (value: unknown) => {
   return /[",\n]/.test(escaped) ? `"${escaped}"` : escaped;
 };
 
+const isAbortError = (error: unknown): boolean => {
+  if (typeof error !== "object" || error === null) {
+    return false;
+  }
+  const candidate = error as { name?: string };
+  return candidate.name === "AbortError";
+};
+
 const createCsvContent = (headers: string[], rows: string[][]) => {
   const csvRows = [headers, ...rows];
   return csvRows.map((row) => row.map(sanitizeCsvValue).join(",")).join("\n");
@@ -238,6 +246,11 @@ export default function Home() {
   const [serviceDetailsOpen, setServiceDetailsOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const { theme, setTheme } = useTheme();
+  const [portfolioAbortController, setPortfolioAbortController] = useState<AbortController | null>(
+    null,
+  );
+  const [fundAbortController, setFundAbortController] = useState<AbortController | null>(null);
+  const [statusNotice, setStatusNotice] = useState<string | null>(null);
 
   useEffect(() => {
     if (!instructionsOpen || instructionsContent !== null) {
@@ -382,49 +395,85 @@ export default function Home() {
   const LoadingBanner = ({
     message,
     accent,
+    onCancel,
+    cancelLabel,
   }: {
     message: string;
     accent: "sky" | "emerald";
+    onCancel?: () => void;
+    cancelLabel?: string;
   }) => {
     const palette =
       accent === "sky"
         ? theme === "light"
           ? {
-              border: "border-sky-300/60",
+              border: "border-sky-200",
               background: "bg-sky-50",
               text: "text-slate-600",
               spinner: "text-sky-500",
+              button:
+                "border border-sky-200 text-sky-700 hover:border-sky-300 hover:bg-sky-100 hover:text-sky-900",
+              focusRing: "focus:ring-sky-200",
+              focusOffset: "focus:ring-offset-sky-50",
             }
           : {
               border: "border-sky-500/40",
               background: "bg-sky-500/10",
               text: "text-sky-100",
               spinner: "text-sky-200",
+              button:
+                "border border-sky-400/60 text-sky-100 hover:border-sky-300 hover:bg-sky-400/20",
+              focusRing: "focus:ring-sky-400/40",
+              focusOffset: "focus:ring-offset-slate-950",
             }
         : theme === "light"
         ? {
-            border: "border-emerald-300/60",
+            border: "border-emerald-200",
             background: "bg-emerald-50",
             text: "text-slate-600",
             spinner: "text-emerald-500",
+            button:
+              "border border-emerald-200 text-emerald-700 hover:border-emerald-300 hover:bg-emerald-100 hover:text-emerald-900",
+            focusRing: "focus:ring-emerald-200",
+            focusOffset: "focus:ring-offset-emerald-50",
           }
         : {
             border: "border-emerald-400/40",
             background: "bg-emerald-400/10",
             text: "text-emerald-100",
             spinner: "text-emerald-200",
+            button:
+              "border border-emerald-400/60 text-emerald-100 hover:border-emerald-300 hover:bg-emerald-400/20",
+            focusRing: "focus:ring-emerald-400/40",
+            focusOffset: "focus:ring-offset-slate-950",
           };
 
     return (
       <div
         className={joinClasses(
-          "mt-3 flex items-center gap-3 rounded-lg border px-4 py-3 shadow-inner shadow-slate-950/40",
+          "mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border px-4 py-3 shadow-inner shadow-slate-950/40",
           palette.border,
           palette.background,
         )}
       >
-        <LoadingSpinner className={joinClasses("h-5 w-5", palette.spinner)} />
-        <p className={joinClasses("text-sm font-medium", palette.text)}>{message}</p>
+        <div className="flex flex-1 items-center gap-3">
+          <LoadingSpinner className={joinClasses("h-5 w-5", palette.spinner)} />
+          <p className={joinClasses("text-sm font-medium", palette.text)}>{message}</p>
+        </div>
+        {onCancel && (
+          <button
+            type="button"
+            onClick={onCancel}
+            className={joinClasses(
+              "rounded-md px-3 py-1.5 text-xs font-semibold transition focus:outline-none focus:ring-2 focus:ring-offset-1",
+              palette.button,
+              palette.focusRing,
+              palette.focusOffset ?? "",
+            )}
+          >
+            {cancelLabel ?? "Cancel"}
+          </button>
+        )}
       </div>
     );
   };
@@ -438,25 +487,36 @@ export default function Home() {
   const servicePalette = useMemo(() => {
     if (theme === "light") {
       return {
-        heading: "text-amber-700",
-        badgeBg: "bg-amber-200/60",
-        badgeText: "text-amber-800",
-        body: "text-amber-700",
+        heading: "text-slate-700",
+        badgeBg: "bg-sky-100",
+        badgeText: "text-sky-800",
+        body: "text-slate-600",
         button:
-          "border-amber-300 text-amber-700 hover:border-amber-400 hover:text-amber-900",
-        detailsContainer: "border-amber-200 bg-amber-100 text-amber-800",
-        list: "text-amber-700",
+          "border-sky-200 text-sky-700 hover:border-sky-300 hover:text-sky-900",
+        detailsContainer: "border-slate-200 bg-white text-slate-700",
+        list: "text-slate-600",
       };
     }
     return {
-      heading: "text-amber-200",
+      heading: "text-amber-100",
       badgeBg: "bg-amber-400/20",
-      badgeText: "text-amber-100",
-      body: "text-amber-100",
-      button:
-        "border-amber-400/50 text-amber-100 hover:border-amber-300 hover:text-white",
+      badgeText: "text-amber-50",
+      body: "text-amber-50",
+        button:
+          "border-amber-400/50 text-amber-100 hover:border-amber-300 hover:text-white",
       detailsContainer: "border-amber-400/40 bg-amber-400/10 text-amber-50",
       list: "text-amber-50",
+    };
+  }, [theme]);
+
+  const noticePalette = useMemo(() => {
+    if (theme === "light") {
+      return {
+        wrapper: "border border-sky-200 bg-sky-50 text-slate-600",
+      };
+    }
+    return {
+      wrapper: "border border-sky-500/40 bg-sky-500/10 text-sky-100",
     };
   }, [theme]);
 
@@ -1023,6 +1083,10 @@ export default function Home() {
     }
 
     setError(null);
+    setStatusNotice(null);
+
+    const controller = new AbortController();
+    setPortfolioAbortController(controller);
     setPortfolioLoading(true);
     try {
       const response = await fetch(`${API_BASE_URL}/valuation`, {
@@ -1033,6 +1097,7 @@ export default function Home() {
           portfolio: portfolioPayload,
           funds: [],
         }),
+        signal: controller.signal,
       });
 
       if (!response.ok) {
@@ -1044,13 +1109,19 @@ export default function Home() {
       setPortfolioResult(payload.portfolio);
       setPortfolioGeneratedAt(payload.generated_at);
     } catch (fetchError) {
-      const message =
-        fetchError instanceof Error
-          ? fetchError.message
-          : "Unexpected error requesting valuations.";
-      setError(message);
+      if (isAbortError(fetchError)) {
+        setStatusNotice("Portfolio request cancelled.");
+        setError(null);
+      } else {
+        const message =
+          fetchError instanceof Error
+            ? fetchError.message
+            : "Unexpected error requesting valuations.";
+        setError(message);
+      }
     } finally {
       setPortfolioLoading(false);
+      setPortfolioAbortController((current) => (current === controller ? null : current));
     }
   };
 
@@ -1073,6 +1144,10 @@ export default function Home() {
     }
 
     setError(null);
+    setStatusNotice(null);
+
+    const controller = new AbortController();
+    setFundAbortController(controller);
     setFundLoading(true);
     try {
       const response = await fetch(`${API_BASE_URL}/valuation`, {
@@ -1083,6 +1158,7 @@ export default function Home() {
           portfolio: [],
           funds: fundPayload,
         }),
+        signal: controller.signal,
       });
 
       if (!response.ok) {
@@ -1094,13 +1170,31 @@ export default function Home() {
       setFundResult(payload.funds);
       setFundGeneratedAt(payload.generated_at);
     } catch (fetchError) {
-      const message =
-        fetchError instanceof Error
-          ? fetchError.message
-          : "Unexpected error requesting fund holdings.";
-      setError(message);
+      if (isAbortError(fetchError)) {
+        setStatusNotice("Fund holdings request cancelled.");
+        setError(null);
+      } else {
+        const message =
+          fetchError instanceof Error
+            ? fetchError.message
+            : "Unexpected error requesting fund holdings.";
+        setError(message);
+      }
     } finally {
       setFundLoading(false);
+      setFundAbortController((current) => (current === controller ? null : current));
+    }
+  };
+
+  const cancelPortfolioRequest = () => {
+    if (portfolioAbortController) {
+      portfolioAbortController.abort();
+    }
+  };
+
+  const cancelFundRequest = () => {
+    if (fundAbortController) {
+      fundAbortController.abort();
     }
   };
 
@@ -1195,9 +1289,9 @@ export default function Home() {
                   try {
                     const res = await fetch(`${API_BASE_URL}/health`);
                     const data = await res.json();
-                    alert(`? ${data.message || "Backend reachable!"}`);
+                    alert(`OK: ${data.message || "Backend reachable!"}`);
                   } catch (err) {
-                    alert("? Could not reach backend. Check API URL or CORS.");
+                    alert("Issue: Could not reach backend. Check API URL or CORS.");
                     console.error(err);
                   }
                 }}
@@ -1210,7 +1304,10 @@ export default function Home() {
             <div className="flex flex-wrap gap-2 rounded-xl border border-slate-800 bg-slate-950/60 p-1 text-sm font-semibold text-slate-300">
               <button
                 type="button"
-                onClick={() => setActiveTab("portfolio")}
+                onClick={() => {
+                  setActiveTab("portfolio");
+                  setStatusNotice(null);
+                }}
                 className={`flex-1 rounded-lg px-4 py-2 transition ${
                   activeTab === "portfolio"
                     ? "bg-sky-500 text-slate-950 shadow-sm shadow-sky-500/40"
@@ -1221,7 +1318,10 @@ export default function Home() {
               </button>
               <button
                 type="button"
-                onClick={() => setActiveTab("funds")}
+                onClick={() => {
+                  setActiveTab("funds");
+                  setStatusNotice(null);
+                }}
                 className={`flex-1 rounded-lg px-4 py-2 transition ${
                   activeTab === "funds"
                     ? "bg-emerald-500 text-slate-950 shadow-sm shadow-emerald-500/40"
@@ -1327,6 +1427,7 @@ export default function Home() {
                   <LoadingBanner
                     message="Crunching company fundamentals and CRI ratios..."
                     accent="sky"
+                    onCancel={cancelPortfolioRequest}
                   />
                 )}
               </div>
@@ -1406,8 +1507,20 @@ export default function Home() {
                   <LoadingBanner
                     message="Gathering fund holdings and refreshing prices..."
                     accent="emerald"
+                    onCancel={cancelFundRequest}
                   />
                 )}
+              </div>
+            )}
+
+            {statusNotice && (
+              <div
+                className={joinClasses(
+                  "rounded-lg px-4 py-3 text-sm",
+                  noticePalette.wrapper,
+                )}
+              >
+                {statusNotice}
               </div>
             )}
 

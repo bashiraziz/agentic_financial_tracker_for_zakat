@@ -1,5 +1,8 @@
 # FastAPI entrypoint with Agents SDK setup
-from fastapi import FastAPI, HTTPException
+import asyncio
+import contextlib
+
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
@@ -27,12 +30,33 @@ def read_root():
     return {"message": "Backend is running!"}
 
 @app.post("/valuation", response_model=ValuationResponse)
-async def calculate_valuation(payload: ValuationRequest) -> ValuationResponse:
+async def calculate_valuation(request: Request, payload: ValuationRequest) -> ValuationResponse:
+    cancel_event = asyncio.Event()
+
+    async def _monitor_disconnect() -> None:
+        try:
+            while not cancel_event.is_set():
+                if await request.is_disconnected():
+                    cancel_event.set()
+                    break
+                await asyncio.sleep(0.5)
+        except asyncio.CancelledError:
+            pass
+
+    monitor_task = asyncio.create_task(_monitor_disconnect())
+
     try:
-        return await analyze_portfolio(payload)
+        return await analyze_portfolio(payload, cancel_event=cancel_event)
+    except asyncio.CancelledError as exc:  # noqa: B904
+        raise HTTPException(status_code=499, detail="Client closed request.") from exc
     except Exception as exc:  # noqa: BLE001
         # Surface unexpected errors with generic message while logging stacktrace.
         raise HTTPException(status_code=500, detail=f"Valuation failed: {exc}") from exc
+    finally:
+        cancel_event.set()
+        monitor_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await monitor_task
 
 
 @app.post("/maintenance/clear-cache")

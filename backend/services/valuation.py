@@ -95,14 +95,27 @@ def _prefetch_cache_key(symbol: str, as_of_date: date) -> Tuple[str, date]:
     return (symbol.upper().strip(), as_of_date)
 
 
-async def fetch_with_rate_limit(session: aiohttp.ClientSession, urls: List[str]) -> List[Dict[str, Any]]:
+def _ensure_not_cancelled(cancel_event: Optional[asyncio.Event]) -> None:
+    if cancel_event and cancel_event.is_set():
+        raise asyncio.CancelledError
+
+
+async def fetch_with_rate_limit(
+    session: aiohttp.ClientSession,
+    urls: List[str],
+    *,
+    cancel_event: Optional[asyncio.Event] = None,
+) -> List[Dict[str, Any]]:
     results: List[Dict[str, Any]] = []
     if not urls:
         return results
 
     for index, url in enumerate(urls):
+        _ensure_not_cancelled(cancel_event)
         try:
             resp = await session.get(url, timeout=15)
+        except asyncio.CancelledError:
+            raise
         except Exception as exc:  # noqa: BLE001
             results.append({"error": str(exc)})
         else:
@@ -113,6 +126,8 @@ async def fetch_with_rate_limit(session: aiohttp.ClientSession, urls: List[str])
                 else:
                     data = await resp.json(content_type=None)
                     results.append(data)
+            except asyncio.CancelledError:
+                raise
             except Exception as exc:  # noqa: BLE001
                 try:
                     snippet = await resp.text()
@@ -124,7 +139,14 @@ async def fetch_with_rate_limit(session: aiohttp.ClientSession, urls: List[str])
 
         if index < len(urls) - 1:
             print(f"Sleeping {REQUEST_PAUSE_SECONDS}s between Alpha Vantage requests...")
-            await asyncio.sleep(REQUEST_PAUSE_SECONDS)
+            if cancel_event:
+                try:
+                    await asyncio.wait_for(cancel_event.wait(), REQUEST_PAUSE_SECONDS)
+                    raise asyncio.CancelledError
+                except asyncio.TimeoutError:
+                    pass
+            else:
+                await asyncio.sleep(REQUEST_PAUSE_SECONDS)
 
     return results
 
@@ -200,13 +222,14 @@ def _extract_close_from_timeseries(
     return latest_close, latest_date
 
 
-async def _prefetch_alpha_vantage_prices(tickers: Iterable[str], as_of_date: date) -> None:
+async def _prefetch_alpha_vantage_prices(tickers: Iterable[str], as_of_date: date, *, cancel_event: Optional[asyncio.Event] = None) -> None:
     if not API_KEY:
         return
 
     cache = _get_prefetched_price_cache()
     normalized: List[str] = []
     for ticker in tickers:
+        _ensure_not_cancelled(cancel_event)
         symbol = (ticker or "").upper().strip()
         if not symbol:
             continue
@@ -226,9 +249,10 @@ async def _prefetch_alpha_vantage_prices(tickers: Iterable[str], as_of_date: dat
 
     timeout = aiohttp.ClientTimeout(total=20)
     async with aiohttp.ClientSession(timeout=timeout) as session:
-        responses = await fetch_with_rate_limit(session, urls)
+        responses = await fetch_with_rate_limit(session, urls, cancel_event=cancel_event)
 
     for symbol, payload in zip(normalized, responses):
+        _ensure_not_cancelled(cancel_event)
         warnings: List[str] = []
         price: Optional[float] = None
         price_date: Optional[date] = None
@@ -468,19 +492,26 @@ def _company_metrics_to_schema(metrics: CompanyMetrics, shares: Optional[float] 
 
 
 async def _gather_company_metrics(
-    companies: List[CompanyInput], as_of_date: date
+    companies: List[CompanyInput],
+    as_of_date: date,
+    *,
+    cancel_event: Optional[asyncio.Event] = None,
 ) -> List[CompanyValuation]:
     semaphore = asyncio.Semaphore(10)
 
     async def _compute(company: CompanyInput) -> CompanyValuation:
         async with semaphore:
             try:
+                _ensure_not_cancelled(cancel_event)
                 metrics: CompanyMetrics = await asyncio.to_thread(
                     compute_company_metrics,
                     company.ticker,
                     as_of_date,
                 )
+                _ensure_not_cancelled(cancel_event)
                 return _company_metrics_to_schema(metrics, company.shares)
+            except asyncio.CancelledError:
+                raise
             except FinancialDataUnavailable as exc:
                 return CompanyValuation(
                     ticker=company.ticker.upper().strip(),
@@ -499,12 +530,16 @@ async def _gather_company_metrics(
 
 
 async def _gather_fund_metrics(
-    funds: List[FundInput], as_of_date: date
+    funds: List[FundInput],
+    as_of_date: date,
+    *,
+    cancel_event: Optional[asyncio.Event] = None,
 ) -> List[FundValuation]:
     edgar = get_edgar_client()
     fund_results: List[FundValuation] = []
 
     for fund in funds:
+        _ensure_not_cancelled(cancel_event)
         ticker_symbol = fund.ticker.upper().strip()
         warnings: List[str] = []
         holdings_output: List[FundHoldingValuation] = []
@@ -547,6 +582,7 @@ async def _gather_fund_metrics(
 
         symbols_to_fetch: Dict[str, CompanyInput] = {}
         for holding in holdings_raw:
+            _ensure_not_cancelled(cancel_event)
             symbol = (holding.get("ticker") or "").upper().strip()
             weight = holding.get("weight")
             if symbol and weight is not None:
@@ -554,8 +590,16 @@ async def _gather_fund_metrics(
 
         metrics_map: Dict[str, CompanyValuation] = {}
         if symbols_to_fetch:
-            await _prefetch_alpha_vantage_prices(symbols_to_fetch.keys(), as_of_date)
-            fetched_metrics = await _gather_company_metrics(list(symbols_to_fetch.values()), as_of_date)
+            await _prefetch_alpha_vantage_prices(
+                symbols_to_fetch.keys(),
+                as_of_date,
+                cancel_event=cancel_event,
+            )
+            fetched_metrics = await _gather_company_metrics(
+                list(symbols_to_fetch.values()),
+                as_of_date,
+                cancel_event=cancel_event,
+            )
             metrics_map = {valuation.ticker.upper(): valuation for valuation in fetched_metrics}
 
         weighted_ratio_sum = 0.0
@@ -564,6 +608,7 @@ async def _gather_fund_metrics(
         excluded_holdings: List[str] = []
 
         for holding in holdings_raw:
+            _ensure_not_cancelled(cancel_event)
             symbol = (holding.get("ticker") or "").upper().strip()
             weight = holding.get("weight")
             holding_name = holding.get("name")
@@ -645,7 +690,11 @@ async def _gather_fund_metrics(
     return fund_results
 
 
-async def analyze_portfolio(request: ValuationRequest) -> ValuationResponse:
+async def analyze_portfolio(
+    request: ValuationRequest,
+    *,
+    cancel_event: Optional[asyncio.Event] = None,
+) -> ValuationResponse:
     _reset_prefetched_price_cache()
     keepalive_url = _normalize_keepalive_url(KEEPALIVE_URL)
     stop_event = asyncio.Event()
@@ -656,12 +705,26 @@ async def analyze_portfolio(request: ValuationRequest) -> ValuationResponse:
     initial_prefetch: List[str] = [
         holding.ticker for holding in request.portfolio
     ] + [fund.ticker for fund in request.funds]
-    await _prefetch_alpha_vantage_prices(initial_prefetch, request.as_of_date)
+    await _prefetch_alpha_vantage_prices(
+        initial_prefetch,
+        request.as_of_date,
+        cancel_event=cancel_event,
+    )
+    _ensure_not_cancelled(cancel_event)
 
     try:
-        portfolio_coro = _gather_company_metrics(request.portfolio, request.as_of_date)
-        funds_coro = _gather_fund_metrics(request.funds, request.as_of_date)
+        portfolio_coro = _gather_company_metrics(
+            request.portfolio,
+            request.as_of_date,
+            cancel_event=cancel_event,
+        )
+        funds_coro = _gather_fund_metrics(
+            request.funds,
+            request.as_of_date,
+            cancel_event=cancel_event,
+        )
         portfolio_results, fund_results = await asyncio.gather(portfolio_coro, funds_coro)
+        _ensure_not_cancelled(cancel_event)
         return ValuationResponse(
             generated_at=datetime.utcnow(),
             as_of_date=request.as_of_date,
@@ -675,3 +738,5 @@ async def analyze_portfolio(request: ValuationRequest) -> ValuationResponse:
                 await keepalive_task
             except Exception:
                 pass
+
+
