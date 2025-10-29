@@ -38,6 +38,20 @@ async def start_keepalive():
     asyncio.create_task(keepalive_task())
     print(f"✅ Keepalive background task started for {KEEPALIVE_URL}")
 
+# ✅ Allow your frontend’s origin
+origins = [
+    "https://agentic-financial-tracker-for-zakat.vercel.app",
+    "http://localhost:3000",  # for local testing
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "message": "Backend alive"}
