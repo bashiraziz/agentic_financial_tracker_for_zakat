@@ -1,8 +1,7 @@
 # FastAPI entrypoint with Agents SDK setup
 import asyncio
 import contextlib
-import os
-import aiohttp
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
@@ -14,47 +13,6 @@ load_dotenv()
 
 app = FastAPI(title="Agentic Financial Tracker",
               docs_url="/docs")
-
-
-KEEPALIVE_URL = os.getenv("KEEPALIVE_URL")
-KEEPALIVE_INTERVAL = 300  # 5 minutes
-
-async def keepalive_task():
-    if not KEEPALIVE_URL:
-        print("⚠️ KEEPALIVE_URL not set — skipping keepalive.")
-        return
-    timeout = aiohttp.ClientTimeout(total=10)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        while True:
-            try:
-                async with session.get(KEEPALIVE_URL) as resp:
-                    print(f"Keepalive → {resp.status} at {KEEPALIVE_URL}")
-            except Exception as e:
-                print(f"Keepalive failed: {e}")
-            await asyncio.sleep(KEEPALIVE_INTERVAL)
-
-@app.on_event("startup")
-async def start_keepalive():
-    asyncio.create_task(keepalive_task())
-    print(f"✅ Keepalive background task started for {KEEPALIVE_URL}")
-
-# ✅ Allow your frontend’s origin
-origins = [
-    "https://agentic-financial-tracker-for-zakat.vercel.app",
-    "http://localhost:3000",  # for local testing
-]
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-@app.get("/health")
-async def health():
-    return {"status": "ok", "message": "Backend alive"}
 
 # Allow frontend to talk to backend
 app.add_middleware(
@@ -113,7 +71,10 @@ def clear_caches() -> dict[str, str]:
 async def health_check():
     return {"status": "ok", "message": "Backend is reachable from Vercel"}
 
-@app.get("/favicon.ico", include_in_schema=False)
-async def favicon():
-    from fastapi.responses import Response
-    return Response(status_code=204)
+# added the below to fix the health check issue
+import os
+import uvicorn
+
+if __name__ == "__main__":
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run("backend.main:app", host="0.0.0.0", port=port)
