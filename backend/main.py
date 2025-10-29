@@ -1,7 +1,8 @@
 # FastAPI entrypoint with Agents SDK setup
 import asyncio
 import contextlib
-
+import os
+import aiohttp
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
@@ -13,6 +14,33 @@ load_dotenv()
 
 app = FastAPI(title="Agentic Financial Tracker",
               docs_url="/docs")
+
+
+KEEPALIVE_URL = os.getenv("KEEPALIVE_URL")
+KEEPALIVE_INTERVAL = 300  # 5 minutes
+
+async def keepalive_task():
+    if not KEEPALIVE_URL:
+        print("⚠️ KEEPALIVE_URL not set — skipping keepalive.")
+        return
+    timeout = aiohttp.ClientTimeout(total=10)
+    async with aiohttp.ClientSession(timeout=timeout) as session:
+        while True:
+            try:
+                async with session.get(KEEPALIVE_URL) as resp:
+                    print(f"Keepalive → {resp.status} at {KEEPALIVE_URL}")
+            except Exception as e:
+                print(f"Keepalive failed: {e}")
+            await asyncio.sleep(KEEPALIVE_INTERVAL)
+
+@app.on_event("startup")
+async def start_keepalive():
+    asyncio.create_task(keepalive_task())
+    print(f"✅ Keepalive background task started for {KEEPALIVE_URL}")
+
+@app.get("/health")
+async def health():
+    return {"status": "ok", "message": "Backend alive"}
 
 # Allow frontend to talk to backend
 app.add_middleware(
