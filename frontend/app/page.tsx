@@ -156,25 +156,6 @@ const triggerCsvDownload = (filename: string, csvContent: string) => {
   window.URL.revokeObjectURL(url);
 };
 
-type PdfModules = {
-  jsPDF: typeof import("jspdf").jsPDF;
-  autoTable: typeof import("jspdf-autotable").default;
-};
-
-let pdfModulesPromise: Promise<PdfModules> | null = null;
-
-const loadPdfModules = () => {
-  if (!pdfModulesPromise) {
-    pdfModulesPromise = Promise.all([import("jspdf"), import("jspdf-autotable")]).then(
-      ([jsPdfModule, autoTableModule]) => ({
-        jsPDF: jsPdfModule.jsPDF,
-        autoTable: autoTableModule.default,
-      }),
-    );
-  }
-  return pdfModulesPromise;
-};
-
 const buildFilenameTimestamp = (value?: string | null) => {
   const base = value ? new Date(value) : new Date();
   const safeDate = Number.isNaN(base.getTime()) ? new Date() : base;
@@ -358,9 +339,6 @@ export default function Home() {
 
   const joinClasses = (...classes: (string | undefined)[]) =>
     classes.filter(Boolean).join(" ");
-
-  const formatWarningsText = (warnings: string[]) =>
-    warnings.length > 0 ? warnings.join(" ") : "—";
 
   const themeAccent: Record<
     ThemeMode,
@@ -1007,79 +985,12 @@ export default function Home() {
 
     const rows = portfolioResult.map((company) => [
       ...exportColumns.map((column) => column.getExportValue(company)),
-      formatWarningsText(company.warnings),
+      company.warnings.join(" "),
     ]);
 
     const timestamp = buildFilenameTimestamp(portfolioGeneratedAt);
     const csvContent = createCsvContent(headers, rows);
     triggerCsvDownload(`portfolio-valuations-${timestamp}.csv`, csvContent);
-  };
-
-  const handleDownloadPortfolioPdf = async () => {
-    if (portfolioResult.length === 0) {
-      return;
-    }
-
-    const { jsPDF, autoTable } = await loadPdfModules();
-    const doc = new jsPDF({ orientation: "landscape", unit: "pt" });
-    const marginX = 40;
-    const titleY = 40;
-    const generatedAtLabel = portfolioGeneratedAt
-      ? new Date(portfolioGeneratedAt).toLocaleString()
-      : null;
-
-    doc.setFontSize(18);
-    doc.text("Portfolio Companies", marginX, titleY);
-
-    let tableStartY = titleY + 20;
-    if (generatedAtLabel) {
-      doc.setFontSize(10);
-      doc.setTextColor(100);
-      doc.text(`Generated at ${generatedAtLabel}`, marginX, titleY + 16);
-      doc.setTextColor(15);
-      tableStartY = titleY + 32;
-    }
-
-    const exportColumns = portfolioColumns.filter(
-      (column) => portfolioColumnConfig[column.id]?.visible ?? true,
-    );
-    const headers = [...exportColumns.map((column) => column.label), "Warnings"];
-
-    const rows = portfolioResult.map((company) => [
-      ...exportColumns.map((column) => column.getExportValue(company)),
-      formatWarningsText(company.warnings),
-    ]);
-
-    autoTable(doc, {
-      head: [headers],
-      body: rows,
-      startY: tableStartY,
-      margin: { left: marginX, right: marginX },
-      styles: {
-        fontSize: 9,
-        cellPadding: 6,
-        textColor: [15, 23, 42],
-        lineColor: [203, 213, 225],
-      },
-      columnStyles: headers.reduce<Record<number, { minCellWidth?: number }>>(
-        (acc, _header, index) => {
-          acc[index] = { minCellWidth: 60 };
-          return acc;
-        },
-        {},
-      ),
-      headStyles: {
-        fillColor: [3, 105, 161],
-        textColor: [255, 255, 255],
-        fontSize: 10,
-      },
-      alternateRowStyles: {
-        fillColor: [241, 245, 249],
-      },
-    });
-
-    const timestamp = buildFilenameTimestamp(portfolioGeneratedAt);
-    doc.save(`portfolio-valuations-${timestamp}.pdf`);
   };
 
   const handleDownloadFundHoldings = (fund: FundValuation) => {
@@ -1137,8 +1048,8 @@ export default function Home() {
           maximumFractionDigits: 6,
         }),
         criRatio !== null ? formatRatio(criRatio) : "N/A",
-        formatWarningsText(holding.warnings),
-        formatWarningsText(company?.warnings ?? []),
+        holding.warnings.join(" "),
+        company?.warnings?.join(" ") ?? "",
       ];
     });
 
@@ -1146,159 +1057,6 @@ export default function Home() {
     const filename = `${fund.ticker || "fund"}-holdings-${timestamp}.csv`.toLowerCase();
     const csvContent = createCsvContent(headers, rows);
     triggerCsvDownload(filename, csvContent);
-  };
-
-  const handleDownloadFundHoldingsPdf = async (fund: FundValuation) => {
-    if (fund.holdings.length === 0) {
-      return;
-    }
-
-    const { jsPDF, autoTable } = await loadPdfModules();
-    const doc = new jsPDF({ orientation: "landscape", unit: "pt" });
-    const marginX = 40;
-    const titleY = 40;
-    const generatedAtLabel = fundGeneratedAt ? new Date(fundGeneratedAt).toLocaleString() : null;
-    const aggregateCriRatio = fund.aggregate_cri_to_market_price_ratio ?? null;
-    const totalWeightCovered = fund.total_weight_covered ?? null;
-    const extrapolatedCriRatio =
-      aggregateCriRatio !== null && totalWeightCovered
-        ? aggregateCriRatio / totalWeightCovered
-        : null;
-    const investedAmount = fundAmountMap.get(fund.ticker.toUpperCase());
-    const zakatableAmount =
-      investedAmount !== undefined && extrapolatedCriRatio !== null
-        ? investedAmount * extrapolatedCriRatio
-        : null;
-    const zakatDue = zakatableAmount !== null ? zakatableAmount * ZAKAT_RATE : null;
-
-    doc.setFontSize(18);
-    doc.text(`${fund.ticker} Holdings`, marginX, titleY);
-
-    const subtitleLines = [
-      fund.fund_name ? `Fund name: ${fund.fund_name}` : null,
-      generatedAtLabel ? `Generated at: ${generatedAtLabel}` : null,
-      `Currency: ${fund.currency ?? "—"}`,
-      `Aggregate CRI / Price: ${formatRatio(aggregateCriRatio)}`,
-      `Weight coverage: ${
-        totalWeightCovered !== null && totalWeightCovered !== undefined
-          ? formatRatio(totalWeightCovered)
-          : "—"
-      }`,
-      `Extrapolated CRI / Price: ${
-        extrapolatedCriRatio !== null ? formatRatio(extrapolatedCriRatio) : "—"
-      }`,
-      `Invested amount: ${formatNumber(investedAmount ?? null)}`,
-      `Zakatable amount: ${formatNumber(zakatableAmount)}`,
-      `Zakat due (2.5%): ${formatNumber(zakatDue)}`,
-    ].filter((line): line is string => Boolean(line));
-
-    doc.setFontSize(10);
-    doc.setTextColor(80);
-    subtitleLines.forEach((line, index) => {
-      doc.text(line, marginX, titleY + 18 + index * 12);
-    });
-    doc.setTextColor(15);
-
-    const headers = [
-      "Holding",
-      "Ticker",
-      "Name",
-      "ISIN",
-      "CUSIP",
-      "Weight",
-      "Cash",
-      "Receivables",
-      "Inventories",
-      "Market Price",
-      "Shares",
-      "CRI per Share",
-      "CRI / Price",
-      "Holding Warnings",
-      "Company Warnings",
-    ];
-
-    const rows = fund.holdings.map((holding) => {
-      const company = holding.company;
-      const ticker = holding.ticker ?? undefined;
-      const name = holding.name ?? undefined;
-      const label =
-        ticker && name && name.toLowerCase() !== ticker.toLowerCase()
-          ? `${ticker} (${name})`
-          : ticker ?? name ?? "N/A";
-
-      const criRatio = company?.cri_to_market_price_ratio ?? null;
-
-      return [
-        label,
-        holding.ticker ?? "—",
-        holding.name ?? "—",
-        holding.isin ?? "—",
-        holding.cusip ?? "—",
-        holding.weight !== null && holding.weight !== undefined
-          ? formatRatio(holding.weight)
-          : "N/A",
-        formatNumber(company?.cash_and_equivalents ?? null),
-        formatNumber(company?.receivables ?? null),
-        formatNumber(company?.inventories ?? null),
-        formatNumber(company?.market_price ?? null),
-        formatNumber(company?.shares_outstanding ?? null, {
-          maximumFractionDigits: 0,
-        }),
-        formatNumber(company?.cri_per_share ?? null, {
-          minimumFractionDigits: 4,
-          maximumFractionDigits: 6,
-        }),
-        criRatio !== null ? formatRatio(criRatio) : "N/A",
-        formatWarningsText(holding.warnings),
-        formatWarningsText(company?.warnings ?? []),
-      ];
-    });
-
-    const subtitleHeight = subtitleLines.length * 12;
-    const tableStartY = titleY + 26 + subtitleHeight;
-
-    autoTable(doc, {
-      head: [headers],
-      body: rows,
-      startY: tableStartY,
-      margin: { left: marginX, right: marginX },
-      styles: {
-        fontSize: 8.5,
-        cellPadding: 5,
-        textColor: [15, 23, 42],
-        lineColor: [203, 213, 225],
-      },
-      columnStyles: {
-        0: { minCellWidth: 120 },
-        5: { halign: "right" },
-        6: { halign: "right" },
-        7: { halign: "right" },
-        8: { halign: "right" },
-        9: { halign: "right" },
-        10: { halign: "right" },
-        11: { halign: "right" },
-        12: { halign: "right" },
-      },
-      headStyles: {
-        fillColor: [8, 47, 73],
-        textColor: [255, 255, 255],
-        fontSize: 9.5,
-      },
-      alternateRowStyles: {
-        fillColor: [241, 245, 249],
-      },
-    });
-
-    if (fund.warnings.length > 0) {
-      const finalY = (doc.lastAutoTable?.finalY ?? tableStartY) + 18;
-      doc.setFontSize(10);
-      doc.setTextColor(194, 120, 3);
-      doc.text(`Notes: ${formatWarningsText(fund.warnings)}`, marginX, finalY);
-      doc.setTextColor(15);
-    }
-
-    const timestamp = buildFilenameTimestamp(fundGeneratedAt);
-    doc.save(`${(fund.ticker || "fund").toLowerCase()}-holdings-${timestamp}.pdf`);
   };
 
   const handlePortfolioSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -1800,16 +1558,6 @@ export default function Home() {
                     </button>
                     <button
                       type="button"
-                      className={downloadButtonClasses}
-                      onClick={() => {
-                        void handleDownloadPortfolioPdf();
-                      }}
-                      disabled={portfolioResult.length === 0}
-                    >
-                      Download PDF
-                    </button>
-                    <button
-                      type="button"
                       className="rounded-md border border-slate-700 px-3 py-2 text-xs font-semibold text-slate-200 transition hover:border-sky-400 hover:text-sky-200"
                       onClick={() =>
                         setShowPortfolioColumnSettings((previous) => !previous)
@@ -2085,26 +1833,14 @@ export default function Home() {
                               </span>
                             </div>
                           </div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <button
-                              type="button"
-                              className={downloadButtonClasses}
-                              onClick={() => handleDownloadFundHoldings(fund)}
-                              disabled={fund.holdings.length === 0}
-                            >
-                              Download CSV
-                            </button>
-                            <button
-                              type="button"
-                              className={downloadButtonClasses}
-                              onClick={() => {
-                                void handleDownloadFundHoldingsPdf(fund);
-                              }}
-                              disabled={fund.holdings.length === 0}
-                            >
-                              Download PDF
-                            </button>
-                          </div>
+                          <button
+                            type="button"
+                            className={downloadButtonClasses}
+                            onClick={() => handleDownloadFundHoldings(fund)}
+                            disabled={fund.holdings.length === 0}
+                          >
+                            Download CSV
+                          </button>
                         </div>
                         <div className="overflow-x-auto">
                           {visibleFundHoldingColumns.length > 0 ? (
@@ -2338,7 +2074,7 @@ export default function Home() {
               <li>Pick an as-of date before requesting valuations to anchor filings.</li>
               <li>Free Alpha Vantage tier pauses after each request to stay within 5 calls/min.</li>
               <li>Add company tickers (and optional shares or amount) for portfolio CRI outputs.</li>
-              <li>Download CSV or PDF exports and review warnings to understand screening outcomes.</li>
+              <li>Download CSVs or review warnings to understand screening outcomes.</li>
             </ul>
             <button
               type="button"
