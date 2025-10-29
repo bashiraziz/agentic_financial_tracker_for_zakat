@@ -1460,7 +1460,7 @@ export default function Home() {
                     >
                       <input
                         className="rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-sky-400 focus:ring-2 focus:ring-sky-400/40"
-                        placeholder="Fund ticker (e.g., VOO)"
+                        placeholder="Fund ticker (e.g., FSELX or VOO)"
                         value={row.ticker}
                         onChange={(event) =>
                           handleFundChange(index, "ticker", event.target.value)
