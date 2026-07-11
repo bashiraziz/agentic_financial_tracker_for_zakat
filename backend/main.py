@@ -1,8 +1,9 @@
 # FastAPI entrypoint with Agents SDK setup
 import asyncio
 import contextlib
+import os
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
@@ -19,7 +20,9 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://agentic-financial-tracker-for-zakat.vercel.app",  # your Vercel production domain
 
-    "http://localhost:3000","healthcheck.railway.app"],  # for local dev],  # Change to ["http://localhost:3000"] if needed
+    # for local dev],  # Change to ["http://localhost:3000"] if needed
+    "http://localhost:3000","https://healthcheck.railway.app"],  
+    
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -46,7 +49,12 @@ async def calculate_valuation(request: Request, payload: ValuationRequest) -> Va
     monitor_task = asyncio.create_task(_monitor_disconnect())
 
     try:
-        return await analyze_portfolio(payload, cancel_event=cancel_event)
+        return await asyncio.wait_for(
+            analyze_portfolio(payload, cancel_event=cancel_event),
+            timeout=300,
+        )
+    except asyncio.TimeoutError as exc:
+        raise HTTPException(status_code=504, detail="Valuation timed out after 300 seconds.") from exc
     except asyncio.CancelledError as exc:  # noqa: B904
         raise HTTPException(status_code=499, detail="Client closed request.") from exc
     except Exception as exc:  # noqa: BLE001
@@ -60,7 +68,10 @@ async def calculate_valuation(request: Request, payload: ValuationRequest) -> Va
 
 
 @app.post("/maintenance/clear-cache")
-def clear_caches() -> dict[str, str]:
+def clear_caches(x_cache_key: str | None = Header(default=None)) -> dict[str, str]:
+    expected = os.getenv("CACHE_CLEAR_API_KEY")
+    if expected and x_cache_key != expected:
+        raise HTTPException(status_code=403, detail="Forbidden.")
     try:
         clear_service_caches()
     except Exception as exc:  # noqa: BLE001
@@ -71,8 +82,6 @@ def clear_caches() -> dict[str, str]:
 async def health_check():
     return {"status": "ok", "message": "Backend is reachable from Vercel"}
 
-# added the below to fix the health check issue
-import os
 import uvicorn
 
 if __name__ == "__main__":
