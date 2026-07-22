@@ -2229,7 +2229,7 @@ export default function Home() {
                       {label}
                     </span>
                     <span className={joinClasses("text-[11px] font-medium", theme === "light" ? "text-slate-400" : "text-slate-500")}>
-                      {pct(count)} of index{extra}
+                      {pct(count)} of companies{extra}
                     </span>
                   </div>
                 );
