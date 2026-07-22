@@ -6,6 +6,37 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 
 
+# ---------------------------------------------------------------------------
+# Debt Screening schemas
+# ---------------------------------------------------------------------------
+
+
+class DebtScreeningRequest(BaseModel):
+    index_id: str  # "SP500", "NASDAQ100", "DOW30"
+    sector: Optional[str] = None  # filter; None = all sectors
+    as_of_date: date
+
+
+class CompanyDebtResult(BaseModel):
+    ticker: str
+    name: str
+    sector: str
+    total_assets: Optional[float] = None
+    interest_bearing_debt: Optional[float] = None
+    ratio: Optional[float] = None
+    is_financial_sector: bool = False
+    error: Optional[str] = None
+
+
+class DebtScreeningResponse(BaseModel):
+    index_id: str
+    index_name: str
+    as_of_date: date
+    total_screened: int
+    results: List[CompanyDebtResult]
+    cached_at: Optional[str] = None
+
+
 class CompanyInput(BaseModel):
     ticker: str = Field(..., min_length=1, description="Ticker symbol of the company")
     shares: Optional[float] = Field(

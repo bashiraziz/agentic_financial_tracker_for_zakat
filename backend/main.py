@@ -2,12 +2,19 @@
 import asyncio
 import contextlib
 import os
+from datetime import date
 
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
-from backend.schemas import ValuationRequest, ValuationResponse
+from backend.schemas import (
+    CompanyDebtResult,
+    DebtScreeningRequest,
+    DebtScreeningResponse,
+    ValuationRequest,
+    ValuationResponse,
+)
 from backend.services import analyze_portfolio, clear_service_caches
 
 load_dotenv()
@@ -80,6 +87,64 @@ def clear_caches(x_cache_key: str | None = Header(default=None)) -> dict[str, st
 @app.get("/health")
 async def health_check():
     return {"status": "ok", "message": "Backend is reachable from Vercel"}
+
+
+# ---------------------------------------------------------------------------
+# Debt Screening endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/screening/sectors")
+def get_screening_sectors(index_id: str = Query(..., description="SP500, NASDAQ100, or DOW30")) -> dict:
+    """Return sorted unique sector list for the given index."""
+    from backend.services.index_constituents import get_sectors, INDEX_CONFIG
+    index_id_upper = index_id.upper()
+    if index_id_upper not in INDEX_CONFIG:
+        raise HTTPException(status_code=400, detail=f"Unknown index_id: {index_id!r}. Valid: {list(INDEX_CONFIG)}")
+    try:
+        sectors = get_sectors(index_id_upper)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"Failed to fetch sectors: {exc}") from exc
+    return {"sectors": sectors}
+
+
+@app.post("/screening/debt-ratios", response_model=DebtScreeningResponse)
+async def screen_debt_ratios(payload: DebtScreeningRequest) -> DebtScreeningResponse:
+    """Screen index constituents by interest-bearing debt / total assets ratio."""
+    from backend.services.index_constituents import fetch_constituents, INDEX_CONFIG
+    from backend.services.debt_screening import screen_companies
+
+    index_id = payload.index_id.upper()
+    if index_id not in INDEX_CONFIG:
+        raise HTTPException(status_code=400, detail=f"Unknown index_id: {payload.index_id!r}. Valid: {list(INDEX_CONFIG)}")
+
+    as_of = payload.as_of_date if payload.as_of_date else date.today()
+
+    try:
+        constituents = fetch_constituents(index_id)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"Failed to fetch constituents: {exc}") from exc
+
+    # Optional sector filter
+    if payload.sector and payload.sector.lower() not in ("all", "all sectors", ""):
+        constituents = [c for c in constituents if c.get("sector") == payload.sector]
+
+    semaphore = asyncio.Semaphore(8)
+    try:
+        raw_results = await screen_companies(constituents, as_of, semaphore)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"Screening failed: {exc}") from exc
+
+    results = [CompanyDebtResult(**r) for r in raw_results]
+    index_name = INDEX_CONFIG[index_id]["name"]
+
+    return DebtScreeningResponse(
+        index_id=index_id,
+        index_name=index_name,
+        as_of_date=as_of,
+        total_screened=len(results),
+        results=results,
+    )
+
 
 import uvicorn
 

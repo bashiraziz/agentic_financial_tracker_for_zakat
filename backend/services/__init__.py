@@ -70,5 +70,19 @@ def clear_service_caches() -> None:
     except Exception:  # noqa: BLE001
         pass
 
+    # Debt screening and constituent file caches
+    import shutil
+    from pathlib import Path
+
+    cache_dir = Path(__file__).parent.parent / "data" / "cache"
+    if cache_dir.exists():
+        try:
+            for cache_file in cache_dir.glob("constituents_*.json"):
+                cache_file.unlink(missing_ok=True)
+            for cache_file in cache_dir.glob("debt_facts_*.json"):
+                cache_file.unlink(missing_ok=True)
+        except Exception:  # noqa: BLE001
+            pass
+
 
 __all__ = ["analyze_portfolio", "compute_company_metrics", "clear_service_caches"]

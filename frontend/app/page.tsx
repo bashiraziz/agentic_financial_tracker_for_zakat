@@ -56,6 +56,26 @@ type ValuationResponse = {
 type PortfolioInputRow = { ticker: string; shares: string; amount: string };
 type FundInputRow = { ticker: string; amount: string };
 
+type CompanyDebtResult = {
+  ticker: string;
+  name: string;
+  sector: string;
+  total_assets?: number | null;
+  interest_bearing_debt?: number | null;
+  ratio?: number | null;
+  is_financial_sector: boolean;
+  error?: string | null;
+};
+
+type DebtScreeningResponse = {
+  index_id: string;
+  index_name: string;
+  as_of_date: string;
+  total_screened: number;
+  results: CompanyDebtResult[];
+  cached_at?: string | null;
+};
+
 type ColumnConfig = {
   visible: boolean;
   width: number;
@@ -252,6 +272,18 @@ export default function Home() {
   const [fundAbortController, setFundAbortController] = useState<AbortController | null>(null);
   const [statusNotice, setStatusNotice] = useState<string | null>(null);
 
+  // Debt screening state
+  const [debtIndexId, setDebtIndexId] = useState<string>("SP500");
+  const [debtSectors, setDebtSectors] = useState<string[]>([]);
+  const [debtSector, setDebtSector] = useState<string>("All Sectors");
+  const [debtAsOfDate, setDebtAsOfDate] = useState<string>(
+    () => new Date().toISOString().slice(0, 10)
+  );
+  const [debtScreeningLoading, setDebtScreeningLoading] = useState(false);
+  const [debtScreeningResult, setDebtScreeningResult] = useState<DebtScreeningResponse | null>(null);
+  const [debtScreeningError, setDebtScreeningError] = useState<string | null>(null);
+  const [debtSectorsLoading, setDebtSectorsLoading] = useState(false);
+
   useEffect(() => {
     if (!instructionsOpen || instructionsContent !== null) {
       return;
@@ -304,6 +336,32 @@ export default function Home() {
       setInstructionsLoading(false);
     };
   }, [instructionsOpen, instructionsContent]);
+
+  // Fetch sectors when debt index changes
+  useEffect(() => {
+    let cancelled = false;
+    setDebtSectors([]);
+    setDebtSector("All Sectors");
+    setDebtSectorsLoading(true);
+    const fetchSectors = async () => {
+      try {
+        const resp = await fetch(
+          `${API_BASE_URL}/screening/sectors?index_id=${encodeURIComponent(debtIndexId)}`
+        );
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json() as { sectors: string[] };
+        if (!cancelled) {
+          setDebtSectors(data.sectors ?? []);
+        }
+      } catch {
+        // Non-fatal; sector filter just won't be populated
+      } finally {
+        if (!cancelled) setDebtSectorsLoading(false);
+      }
+    };
+    void fetchSectors();
+    return () => { cancelled = true; };
+  }, [debtIndexId]);
 
   const fundAmountMap = useMemo(() => {
     const map = new Map<string, number>();
@@ -1947,6 +2005,252 @@ export default function Home() {
               : "Add fund tickers to see fund holdings and CRI metrics."}
           </div>
         )}
+
+        {/* ------------------------------------------------------------------ */}
+        {/* Debt-to-Assets Screening section                                    */}
+        {/* ------------------------------------------------------------------ */}
+        <section className="mt-8 rounded-2xl border border-slate-800 bg-slate-950/40 p-6">
+          <div className="mb-4">
+            <h2 className="text-lg font-semibold text-slate-100">
+              Debt-to-Assets Screening
+            </h2>
+            <p className="mt-1 text-sm text-slate-400">
+              Screens index constituents by interest-bearing debt / total assets for
+              Islamic finance (zakat) compliance. Ratio &gt; 30% is flagged. Financial
+              sector companies are noted separately as they are structurally high-debt
+              and excluded from standard Islamic finance screening.
+            </p>
+          </div>
+
+          {/* Controls */}
+          <div className="flex flex-wrap items-end gap-3">
+            {/* Index selector */}
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium text-slate-400" htmlFor="debt-index-select">
+                Index
+              </label>
+              <select
+                id="debt-index-select"
+                value={debtIndexId}
+                onChange={(e) => setDebtIndexId(e.target.value)}
+                className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-sky-500"
+              >
+                <option value="SP500">S&amp;P 500</option>
+                <option value="NASDAQ100">NASDAQ 100</option>
+                <option value="DOW30">Dow 30</option>
+              </select>
+            </div>
+
+            {/* Sector filter */}
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium text-slate-400" htmlFor="debt-sector-select">
+                Sector {debtSectorsLoading && <span className="text-slate-500">(loading…)</span>}
+              </label>
+              <select
+                id="debt-sector-select"
+                value={debtSector}
+                onChange={(e) => setDebtSector(e.target.value)}
+                disabled={debtSectorsLoading}
+                className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-sky-500 disabled:opacity-50"
+              >
+                <option value="All Sectors">All Sectors</option>
+                {debtSectors.map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* As-of date */}
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium text-slate-400" htmlFor="debt-asof-date">
+                As-of Date
+              </label>
+              <input
+                id="debt-asof-date"
+                type="date"
+                value={debtAsOfDate}
+                onChange={(e) => setDebtAsOfDate(e.target.value)}
+                className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-sky-500"
+              />
+            </div>
+
+            {/* Screen button */}
+            <button
+              type="button"
+              disabled={debtScreeningLoading}
+              onClick={async () => {
+                setDebtScreeningLoading(true);
+                setDebtScreeningError(null);
+                setDebtScreeningResult(null);
+                try {
+                  const body: Record<string, unknown> = {
+                    index_id: debtIndexId,
+                    as_of_date: debtAsOfDate || new Date().toISOString().slice(0, 10),
+                  };
+                  if (debtSector && debtSector !== "All Sectors") {
+                    body.sector = debtSector;
+                  }
+                  const resp = await fetch(`${API_BASE_URL}/screening/debt-ratios`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(body),
+                  });
+                  if (!resp.ok) {
+                    const errData = await resp.json().catch(() => ({})) as { detail?: string };
+                    throw new Error(errData.detail ?? `HTTP ${resp.status}`);
+                  }
+                  const data = await resp.json() as DebtScreeningResponse;
+                  setDebtScreeningResult(data);
+                } catch (err) {
+                  setDebtScreeningError(
+                    err instanceof Error ? err.message : "Screening failed."
+                  );
+                } finally {
+                  setDebtScreeningLoading(false);
+                }
+              }}
+              className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {debtScreeningLoading ? "Screening…" : "Screen Companies"}
+            </button>
+          </div>
+
+          {/* Loading state */}
+          {debtScreeningLoading && (
+            <div className="mt-6 flex items-center gap-3 rounded-xl border border-sky-400/30 bg-sky-500/10 px-4 py-3 text-sm text-sky-100">
+              <svg
+                className="h-5 w-5 animate-spin text-sky-300"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+              >
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                  fill="none"
+                />
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+                />
+              </svg>
+              <span>
+                Fetching companies from SEC EDGAR&hellip; this may take 30&ndash;60 seconds
+              </span>
+            </div>
+          )}
+
+          {/* Error */}
+          {debtScreeningError && (
+            <div className="mt-4 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+              {debtScreeningError}
+            </div>
+          )}
+
+          {/* Results */}
+          {debtScreeningResult && !debtScreeningLoading && (
+            <div className="mt-6">
+              {/* Summary line */}
+              {(() => {
+                const screened = debtScreeningResult.results.filter(
+                  (r) => !r.is_financial_sector && r.ratio != null
+                );
+                const passing = screened.filter((r) => (r.ratio ?? 1) <= 0.3);
+                return (
+                  <p className="mb-3 text-sm text-slate-300">
+                    <span className="font-semibold text-sky-400">{passing.length}</span>
+                    {" of "}
+                    <span className="font-semibold">{screened.length}</span>
+                    {" non-financial companies pass (ratio ≤ 30%)"}
+                    {debtSector && debtSector !== "All Sectors" && (
+                      <span className="text-slate-500"> · Sector: {debtSector}</span>
+                    )}
+                  </p>
+                );
+              })()}
+
+              <div className="overflow-x-auto rounded-xl border border-slate-800">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-800 bg-slate-900/80 text-left text-slate-400">
+                      <th className="px-3 py-2 font-medium">Company</th>
+                      <th className="px-3 py-2 font-medium">Ticker</th>
+                      <th className="px-3 py-2 font-medium">Sector</th>
+                      <th className="px-3 py-2 font-medium text-right">Total Assets</th>
+                      <th className="px-3 py-2 font-medium text-right">Interest-Bearing Debt</th>
+                      <th className="px-3 py-2 font-medium text-right">Ratio</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60">
+                    {debtScreeningResult.results.map((r) => {
+                      const rowBg = r.is_financial_sector
+                        ? "bg-amber-500/10"
+                        : r.error || r.ratio == null
+                        ? ""
+                        : r.ratio > 0.3
+                        ? "bg-red-500/10"
+                        : "bg-emerald-500/10";
+
+                      const formatBillions = (v?: number | null) => {
+                        if (v == null || !Number.isFinite(v)) return "—";
+                        const b = v / 1_000_000_000;
+                        return `$${b.toFixed(2)}B`;
+                      };
+
+                      const formatPct = (v?: number | null) => {
+                        if (v == null || !Number.isFinite(v)) return "—";
+                        return `${(v * 100).toFixed(1)}%`;
+                      };
+
+                      return (
+                        <tr key={r.ticker} className={`${rowBg} hover:brightness-110 transition-colors`}>
+                          <td className="px-3 py-2 text-slate-200">
+                            {r.name}
+                            {r.is_financial_sector && (
+                              <span className="ml-2 inline-flex items-center rounded border border-amber-500/50 bg-amber-500/20 px-1 py-0.5 text-[10px] font-semibold text-amber-300">
+                                ⚠ Financial sector
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 font-mono text-slate-300">{r.ticker}</td>
+                          <td className="px-3 py-2 text-slate-400">{r.sector}</td>
+                          <td className="px-3 py-2 text-right text-slate-300">
+                            {r.error ? (
+                              <span className="text-slate-600 italic">{r.error}</span>
+                            ) : (
+                              formatBillions(r.total_assets)
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-right text-slate-300">
+                            {r.error ? "—" : formatBillions(r.interest_bearing_debt)}
+                          </td>
+                          <td className="px-3 py-2 text-right font-semibold">
+                            {r.error ? (
+                              "—"
+                            ) : r.ratio == null ? (
+                              <span className="text-slate-600">—</span>
+                            ) : r.is_financial_sector ? (
+                              <span className="text-amber-400">{formatPct(r.ratio)}</span>
+                            ) : r.ratio > 0.3 ? (
+                              <span className="text-red-400">{formatPct(r.ratio)}</span>
+                            ) : (
+                              <span className="text-emerald-400">{formatPct(r.ratio)}</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </section>
+
         </div>
 
         {sidebarOpen && (
