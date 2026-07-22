@@ -283,6 +283,7 @@ export default function Home() {
   const [debtScreeningResult, setDebtScreeningResult] = useState<DebtScreeningResponse | null>(null);
   const [debtScreeningError, setDebtScreeningError] = useState<string | null>(null);
   const [debtSectorsLoading, setDebtSectorsLoading] = useState(false);
+  const [debtAbortController, setDebtAbortController] = useState<AbortController | null>(null);
 
   useEffect(() => {
     if (!instructionsOpen || instructionsContent !== null) {
@@ -2009,12 +2010,17 @@ export default function Home() {
         {/* ------------------------------------------------------------------ */}
         {/* Debt-to-Assets Screening section                                    */}
         {/* ------------------------------------------------------------------ */}
-        <section className="mt-8 rounded-2xl border border-slate-800 bg-slate-950/40 p-6">
+        <section className={joinClasses(
+          "mt-8 rounded-2xl border p-6",
+          theme === "light"
+            ? "border-slate-200 bg-white shadow-sm"
+            : "border-slate-800 bg-slate-950/40"
+        )}>
           <div className="mb-4">
-            <h2 className="text-lg font-semibold text-slate-100">
+            <h2 className={joinClasses("text-lg font-semibold", theme === "light" ? "text-slate-800" : "text-slate-100")}>
               Debt-to-Assets Screening
             </h2>
-            <p className="mt-1 text-sm text-slate-400">
+            <p className={joinClasses("mt-1 text-sm", theme === "light" ? "text-slate-500" : "text-slate-400")}>
               Screens index constituents by interest-bearing debt / total assets for
               Islamic finance (zakat) compliance. Ratio &gt; 30% is flagged. Financial
               sector companies are noted separately as they are structurally high-debt
@@ -2026,14 +2032,19 @@ export default function Home() {
           <div className="flex flex-wrap items-end gap-3">
             {/* Index selector */}
             <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium text-slate-400" htmlFor="debt-index-select">
+              <label className={joinClasses("text-xs font-medium", theme === "light" ? "text-slate-600" : "text-slate-400")} htmlFor="debt-index-select">
                 Index
               </label>
               <select
                 id="debt-index-select"
                 value={debtIndexId}
                 onChange={(e) => setDebtIndexId(e.target.value)}
-                className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                className={joinClasses(
+                  "rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-sky-500",
+                  theme === "light"
+                    ? "border-slate-300 bg-white text-slate-900"
+                    : "border-slate-700 bg-slate-800 text-slate-100"
+                )}
               >
                 <option value="SP500">S&amp;P 500</option>
                 <option value="NASDAQ100">NASDAQ 100</option>
@@ -2043,15 +2054,20 @@ export default function Home() {
 
             {/* Sector filter */}
             <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium text-slate-400" htmlFor="debt-sector-select">
-                Sector {debtSectorsLoading && <span className="text-slate-500">(loading…)</span>}
+              <label className={joinClasses("text-xs font-medium", theme === "light" ? "text-slate-600" : "text-slate-400")} htmlFor="debt-sector-select">
+                Sector {debtSectorsLoading && <span className={theme === "light" ? "text-slate-400" : "text-slate-500"}>(loading…)</span>}
               </label>
               <select
                 id="debt-sector-select"
                 value={debtSector}
                 onChange={(e) => setDebtSector(e.target.value)}
                 disabled={debtSectorsLoading}
-                className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-sky-500 disabled:opacity-50"
+                className={joinClasses(
+                  "rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-sky-500 disabled:opacity-50",
+                  theme === "light"
+                    ? "border-slate-300 bg-white text-slate-900"
+                    : "border-slate-700 bg-slate-800 text-slate-100"
+                )}
               >
                 <option value="All Sectors">All Sectors</option>
                 {debtSectors.map((s) => (
@@ -2062,7 +2078,7 @@ export default function Home() {
 
             {/* As-of date */}
             <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium text-slate-400" htmlFor="debt-asof-date">
+              <label className={joinClasses("text-xs font-medium", theme === "light" ? "text-slate-600" : "text-slate-400")} htmlFor="debt-asof-date">
                 As-of Date
               </label>
               <input
@@ -2070,49 +2086,73 @@ export default function Home() {
                 type="date"
                 value={debtAsOfDate}
                 onChange={(e) => setDebtAsOfDate(e.target.value)}
-                className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                className={joinClasses(
+                  "rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-sky-500",
+                  theme === "light"
+                    ? "border-slate-300 bg-white text-slate-900"
+                    : "border-slate-700 bg-slate-800 text-slate-100"
+                )}
               />
             </div>
 
-            {/* Screen button */}
-            <button
-              type="button"
-              disabled={debtScreeningLoading}
-              onClick={async () => {
-                setDebtScreeningLoading(true);
-                setDebtScreeningError(null);
-                setDebtScreeningResult(null);
-                try {
-                  const body: Record<string, unknown> = {
-                    index_id: debtIndexId,
-                    as_of_date: debtAsOfDate || new Date().toISOString().slice(0, 10),
-                  };
-                  if (debtSector && debtSector !== "All Sectors") {
-                    body.sector = debtSector;
-                  }
-                  const resp = await fetch(`${API_BASE_URL}/screening/debt-ratios`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(body),
-                  });
-                  if (!resp.ok) {
-                    const errData = await resp.json().catch(() => ({})) as { detail?: string };
-                    throw new Error(errData.detail ?? `HTTP ${resp.status}`);
-                  }
-                  const data = await resp.json() as DebtScreeningResponse;
-                  setDebtScreeningResult(data);
-                } catch (err) {
-                  setDebtScreeningError(
-                    err instanceof Error ? err.message : "Screening failed."
-                  );
-                } finally {
+            {/* Screen / Cancel buttons */}
+            {debtScreeningLoading ? (
+              <button
+                type="button"
+                onClick={() => {
+                  debtAbortController?.abort();
+                  setDebtAbortController(null);
                   setDebtScreeningLoading(false);
-                }
-              }}
-              className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {debtScreeningLoading ? "Screening…" : "Screen Companies"}
-            </button>
+                  setDebtScreeningError("Screening cancelled.");
+                }}
+                className="rounded-lg border border-red-500/60 px-4 py-2 text-sm font-semibold text-red-300 transition hover:border-red-400 hover:text-red-200"
+              >
+                Cancel
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={async () => {
+                  const controller = new AbortController();
+                  setDebtAbortController(controller);
+                  setDebtScreeningLoading(true);
+                  setDebtScreeningError(null);
+                  setDebtScreeningResult(null);
+                  try {
+                    const body: Record<string, unknown> = {
+                      index_id: debtIndexId,
+                      as_of_date: debtAsOfDate || new Date().toISOString().slice(0, 10),
+                    };
+                    if (debtSector && debtSector !== "All Sectors") {
+                      body.sector = debtSector;
+                    }
+                    const resp = await fetch(`${API_BASE_URL}/screening/debt-ratios`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify(body),
+                      signal: controller.signal,
+                    });
+                    if (!resp.ok) {
+                      const errData = await resp.json().catch(() => ({})) as { detail?: string };
+                      throw new Error(errData.detail ?? `HTTP ${resp.status}`);
+                    }
+                    const data = await resp.json() as DebtScreeningResponse;
+                    setDebtScreeningResult(data);
+                  } catch (err) {
+                    if (err instanceof Error && err.name === "AbortError") return;
+                    setDebtScreeningError(
+                      err instanceof Error ? err.message : "Screening failed."
+                    );
+                  } finally {
+                    setDebtAbortController(null);
+                    setDebtScreeningLoading(false);
+                  }
+                }}
+                className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-500"
+              >
+                Screen Companies
+              </button>
+            )}
           </div>
 
           {/* Loading state */}
