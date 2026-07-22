@@ -35,21 +35,19 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 From the project root:
 
 ```bash
-cd backend
-
 # First time only: create and activate a virtual environment
-python -m venv venv
+python -m venv backend/venv
 
 # Activate (Windows PowerShell)
-venv\Scripts\activate
+backend\venv\Scripts\activate
 # Activate (macOS/Linux)
-source venv/bin/activate
+source backend/venv/bin/activate
 
 # Install dependencies
 pip install -r requirements.txt
 
-# Start the server
-uvicorn main:app --reload --port 8000
+# Start the server (must be run from project root)
+uvicorn backend.main:app --reload --port 8000
 ```
 
 The API will be available at `http://localhost:8000`.  
