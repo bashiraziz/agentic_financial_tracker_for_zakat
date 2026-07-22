@@ -2264,7 +2264,7 @@ export default function Home() {
                           <td className="px-3 py-2 text-slate-200">
                             {r.name}
                             {r.is_financial_sector && (
-                              <span className="ml-2 inline-flex items-center rounded border border-amber-500/50 bg-amber-500/20 px-1 py-0.5 text-[10px] font-semibold text-amber-300">
+                              <span className="ml-2 inline-flex items-center rounded border border-amber-500 bg-amber-400 px-1 py-0.5 text-[10px] font-semibold text-amber-950">
                                 ⚠ Financial sector
                               </span>
                             )}
