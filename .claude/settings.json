@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python C:/Users/user/Documents/GitHub/my-wiki\\.claude\\scripts\\export-session.py --trigger precompact"
+            "command": "python \"C:/Users/user/Documents/GitHub/my-wiki/.claude/scripts/export-session.py\" --trigger precompact"
           }
         ]
       }
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python C:/Users/user/Documents/GitHub/my-wiki\\.claude\\scripts\\export-session.py --trigger sessionend"
+            "command": "python \"C:/Users/user/Documents/GitHub/my-wiki/.claude/scripts/export-session.py\" --trigger sessionend"
           }
         ]
       }
@@ -26,7 +26,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python C:/Users/user/Documents/GitHub/my-wiki\\.claude\\scripts\\index-sessions.py && python C:/Users/user/Documents/GitHub/my-wiki\\.claude\\scripts\\recall.py --recent 3"
+            "command": "python \"C:/Users/user/Documents/GitHub/my-wiki/.claude/scripts/index-sessions.py\" && python \"C:/Users/user/Documents/GitHub/my-wiki/.claude/scripts/recall.py\" --recent 3"
           }
         ]
       }
@@ -36,7 +36,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python -c \"import json,sys,pathlib; d=json.load(sys.stdin); pathlib.Path(r'C:/Users/user/Documents/GitHub/my-wiki\\.claude\\no-export').touch() if 'this session is confidential' in d.get('prompt','').lower() else None\""
+            "command": "python -c \"import json,sys,pathlib; d=json.load(sys.stdin); pathlib.Path('C:/Users/user/Documents/GitHub/my-wiki/.claude/no-export').touch() if 'this session is confidential' in d.get('prompt','').lower() else None\""
           }
         ]
       }

@@ -79,48 +79,86 @@ def _save_facts_cache(cik: str, as_of: date, facts: Dict) -> None:
         pass
 
 
+_STALE_THRESHOLD_DAYS = 730  # concept values older than 2 years are considered stale
+
+
+def _fresh(value: Optional[float], value_date: Optional[date], as_of: date) -> bool:
+    """Return True if the value exists and its date is within 2 years of as_of."""
+    if value is None or value_date is None:
+        return False
+    from datetime import timedelta
+    return (as_of - value_date).days <= _STALE_THRESHOLD_DAYS
+
+
 def _extract_interest_bearing_debt(
     facts: Dict,
     as_of: date,
 ) -> Tuple[Optional[float], str]:
-    """Extract interest-bearing debt using priority cascade.
+    """Extract interest-bearing debt, choosing the most complete recent data available.
 
-    Strategy 1 (granular): LongTermDebtNoncurrent + LongTermDebtCurrent + ShortTermBorrowings
-      - Only fires when at least one LT component is present; ST-only falls through.
-    Strategy 2 (aggregate): LongTermDebt + DebtCurrent
-      - Covers companies like Boeing that report the aggregate LT concept + current maturities.
-    Strategy 3 (ST only): ShortTermBorrowings or CommercialPaper alone
-      - For companies with no long-term debt.
-    Strategy 4 (combined): DebtLongtermAndShorttermCombinedAmount
+    Many companies changed their XBRL reporting over time. Earlier filings used
+    LongTermDebtNoncurrent / LongTermDebtCurrent; modern filings often use
+    LongTermDebt + DebtCurrent. Stale historical values can remain in EDGAR
+    even after a company switches concepts, causing the wrong strategy to fire.
 
-    CommercialPaper is intentionally excluded from early stages — stale values in EDGAR
-    can cause it to fire on companies that have paid off their CP, returning a ghost balance.
+    Fix: check recency of each found value. Only use a concept if its most
+    recent filing is within 2 years of the as-of date.
+
+    When both granular and aggregate strategies yield recent data, take the
+    higher value (conservative for Islamic finance — errs toward flagging).
     """
     units = list(USD_UNITS)
 
-    # Strategy 1 — granular LT noncurrent / LT current / ST borrowings
-    lt_noncurrent, _ = extract_fact_value(facts, ["LongTermDebtNoncurrent"], units, as_of)
-    lt_current, _ = extract_fact_value(facts, ["LongTermDebtCurrent"], units, as_of)
-    st_borrow, _ = extract_fact_value(facts, ["ShortTermBorrowings"], units, as_of)
+    # Fetch all candidates with their dates
+    lt_noncurrent, lt_nc_dt = extract_fact_value(facts, ["LongTermDebtNoncurrent"], units, as_of)
+    lt_current,    lt_c_dt  = extract_fact_value(facts, ["LongTermDebtCurrent"],    units, as_of)
+    st_borrow,     st_dt    = extract_fact_value(facts, ["ShortTermBorrowings"],     units, as_of)
+    lt_debt,       lt_dt    = extract_fact_value(facts, ["LongTermDebt"],            units, as_of)
+    debt_current,  dc_dt    = extract_fact_value(facts, ["DebtCurrent"],             units, as_of)
 
-    if lt_noncurrent is not None or lt_current is not None:
-        # Only commit to Strategy 1 when we have at least one LT component.
-        # ST-only result would miss LongTermDebt for companies like Boeing.
-        return (lt_noncurrent or 0.0) + (lt_current or 0.0) + (st_borrow or 0.0), "granular"
+    # Determine which strategies have fresh LT data
+    granular_fresh = _fresh(lt_noncurrent, lt_nc_dt, as_of) or _fresh(lt_current, lt_c_dt, as_of)
+    aggregate_fresh = _fresh(lt_debt, lt_dt, as_of)
 
-    # Strategy 2 — aggregate LT + current maturities (Boeing, many large industrials)
-    lt_debt, _ = extract_fact_value(facts, ["LongTermDebt"], units, as_of)
-    debt_current, _ = extract_fact_value(facts, ["DebtCurrent"], units, as_of)
+    granular_val: Optional[float] = None
+    aggregate_val: Optional[float] = None
 
-    if lt_debt is not None or debt_current is not None:
-        return (lt_debt or 0.0) + (debt_current or 0.0), "aggregate"
+    if granular_fresh:
+        nc = lt_noncurrent if _fresh(lt_noncurrent, lt_nc_dt, as_of) else 0.0
+        cur = lt_current if _fresh(lt_current, lt_c_dt, as_of) else 0.0
+        st = st_borrow or 0.0
+        granular_val = (nc or 0.0) + (cur or 0.0) + st
 
-    # Strategy 3 — ST only (no long-term debt reported)
-    cp, _ = extract_fact_value(facts, ["CommercialPaper"], units, as_of)
-    if st_borrow is not None or cp is not None:
+    if aggregate_fresh:
+        dc = debt_current if _fresh(debt_current, dc_dt, as_of) else 0.0
+        # DebtCurrent may already include LongTermDebtAndCapitalLeaseObligationsCurrent;
+        # if not, fall back to the capital-lease-inclusive current concept
+        if dc == 0.0:
+            cap_cur, cap_cur_dt = extract_fact_value(
+                facts, ["LongTermDebtAndCapitalLeaseObligationsCurrent"], units, as_of
+            )
+            if _fresh(cap_cur, cap_cur_dt, as_of):
+                dc = cap_cur or 0.0
+        aggregate_val = (lt_debt or 0.0) + dc
+
+    if granular_val is not None and aggregate_val is not None:
+        # Both strategies have recent data — take the higher (conservative)
+        if aggregate_val > granular_val:
+            return aggregate_val, "aggregate"
+        return granular_val, "granular"
+
+    if granular_val is not None:
+        return granular_val, "granular"
+
+    if aggregate_val is not None:
+        return aggregate_val, "aggregate"
+
+    # ST only (no LT debt reported — genuinely debt-free or near-zero LT)
+    cp, cp_dt = extract_fact_value(facts, ["CommercialPaper"], units, as_of)
+    if _fresh(st_borrow, st_dt, as_of) or _fresh(cp, cp_dt, as_of):
         return (st_borrow or 0.0) + (cp or 0.0), "st_only"
 
-    # Strategy 4 — combined concept
+    # Combined fallback
     combined, _ = extract_fact_value(facts, ["DebtLongtermAndShorttermCombinedAmount"], units, as_of)
     if combined is not None:
         return combined, "combined"
