@@ -2196,33 +2196,71 @@ export default function Home() {
           {/* Results */}
           {debtScreeningResult && !debtScreeningLoading && (
             <div className="mt-6">
-              {/* Summary line */}
+              {/* Summary */}
               {(() => {
-                const nonFin = debtScreeningResult.results.filter(
-                  (r) => !r.is_financial_sector && r.ratio != null
-                );
-                const passing = nonFin.filter((r) => (r.ratio ?? 1) <= 0.3);
-                const totalDebt = nonFin.reduce((s, r) => s + (r.interest_bearing_debt ?? 0), 0);
-                const totalAssets = nonFin.reduce((s, r) => s + (r.total_assets ?? 0), 0);
+                const total = debtScreeningResult.results.length;
+                const pct = (n: number) => total > 0 ? `${((n / total) * 100).toFixed(1)}%` : "—";
+
+                const financial = debtScreeningResult.results.filter((r) => r.is_financial_sector);
+                const nonFin = debtScreeningResult.results.filter((r) => !r.is_financial_sector);
+                const noData = nonFin.filter((r) => r.ratio == null);
+                const withData = nonFin.filter((r) => r.ratio != null);
+                const passing = withData.filter((r) => (r.ratio ?? 1) <= 0.3);
+                const failing = withData.filter((r) => (r.ratio ?? 0) > 0.3);
+
+                const totalDebt = withData.reduce((s, r) => s + (r.interest_bearing_debt ?? 0), 0);
+                const totalAssets = withData.reduce((s, r) => s + (r.total_assets ?? 0), 0);
                 const aggRatio = totalAssets > 0 ? totalDebt / totalAssets : null;
+
+                const statCard = (
+                  label: string,
+                  count: number,
+                  colorClass: string,
+                  extra?: React.ReactNode,
+                ) => (
+                  <div className={joinClasses(
+                    "flex flex-col gap-0.5 rounded-lg border px-3 py-2",
+                    theme === "light" ? "border-slate-200 bg-slate-50" : "border-slate-700 bg-slate-800/60"
+                  )}>
+                    <span className={joinClasses("text-lg font-bold leading-none", colorClass)}>
+                      {count}
+                    </span>
+                    <span className={joinClasses("text-[11px]", theme === "light" ? "text-slate-500" : "text-slate-400")}>
+                      {label}
+                    </span>
+                    <span className={joinClasses("text-[11px] font-medium", theme === "light" ? "text-slate-400" : "text-slate-500")}>
+                      {pct(count)} of index{extra}
+                    </span>
+                  </div>
+                );
+
                 return (
-                  <p className="mb-3 text-sm text-slate-300">
-                    <span className="font-semibold text-sky-400">{passing.length}</span>
-                    {" of "}
-                    <span className="font-semibold">{nonFin.length}</span>
-                    {" non-financial companies pass (ratio ≤ 30%)"}
-                    {aggRatio !== null && (
-                      <span className="ml-2 text-slate-400">
-                        {"· Index aggregate ratio: "}
-                        <span className={aggRatio > 0.3 ? "font-semibold text-red-400" : "font-semibold text-green-400"}>
-                          {(aggRatio * 100).toFixed(1)}%
-                        </span>
+                  <div className="mb-4">
+                    <div className="mb-2 flex items-center gap-2">
+                      <span className={joinClasses("text-xs font-semibold uppercase tracking-wide", theme === "light" ? "text-slate-500" : "text-slate-400")}>
+                        {debtScreeningResult.index_name} breakdown
                       </span>
-                    )}
-                    {debtSector && debtSector !== "All Sectors" && (
-                      <span className="text-slate-500"> · Sector: {debtSector}</span>
-                    )}
-                  </p>
+                      {debtSector && debtSector !== "All Sectors" && (
+                        <span className={joinClasses("text-xs", theme === "light" ? "text-slate-400" : "text-slate-500")}>
+                          · {debtSector}
+                        </span>
+                      )}
+                      {aggRatio !== null && (
+                        <span className={joinClasses("text-xs", theme === "light" ? "text-slate-400" : "text-slate-500")}>
+                          · Aggregate ratio:{" "}
+                          <span className={aggRatio > 0.3 ? "font-semibold text-red-500" : "font-semibold text-green-500"}>
+                            {(aggRatio * 100).toFixed(1)}%
+                          </span>
+                        </span>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                      {statCard("Pass (≤ 30% debt)", passing.length, "text-green-500")}
+                      {statCard("Fail (> 30% debt)", failing.length, "text-red-500")}
+                      {statCard("Financial sector", financial.length, "text-amber-500")}
+                      {statCard("No data", noData.length, theme === "light" ? "text-slate-400" : "text-slate-500")}
+                    </div>
+                  </div>
                 );
               })()}
 
