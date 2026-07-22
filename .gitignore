@@ -40,3 +40,17 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# Runtime artifacts
+backend/data/cache/
+sessions.db
+sessions.db-shm
+sessions.db-wal
+
+# Claude Code local files
+.claude/settings.local.json
+.claude/worktrees/
