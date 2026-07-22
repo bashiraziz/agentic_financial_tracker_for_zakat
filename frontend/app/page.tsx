@@ -2052,29 +2052,31 @@ export default function Home() {
               </select>
             </div>
 
-            {/* Sector filter */}
-            <div className="flex flex-col gap-1">
-              <label className={joinClasses("text-xs font-medium", theme === "light" ? "text-slate-600" : "text-slate-400")} htmlFor="debt-sector-select">
-                Sector {debtSectorsLoading && <span className={theme === "light" ? "text-slate-400" : "text-slate-500"}>(loading…)</span>}
-              </label>
-              <select
-                id="debt-sector-select"
-                value={debtSector}
-                onChange={(e) => setDebtSector(e.target.value)}
-                disabled={debtSectorsLoading}
-                className={joinClasses(
-                  "rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-sky-500 disabled:opacity-50",
-                  theme === "light"
-                    ? "border-slate-300 bg-white text-slate-900"
-                    : "border-slate-700 bg-slate-800 text-slate-100"
-                )}
-              >
-                <option value="All Sectors">All Sectors</option>
-                {debtSectors.map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
-            </div>
+            {/* Sector filter — hidden for NASDAQ 100 (no sector data from source) */}
+            {debtIndexId !== "NASDAQ100" && (
+              <div className="flex flex-col gap-1">
+                <label className={joinClasses("text-xs font-medium", theme === "light" ? "text-slate-600" : "text-slate-400")} htmlFor="debt-sector-select">
+                  Sector {debtSectorsLoading && <span className={theme === "light" ? "text-slate-400" : "text-slate-500"}>(loading…)</span>}
+                </label>
+                <select
+                  id="debt-sector-select"
+                  value={debtSector}
+                  onChange={(e) => setDebtSector(e.target.value)}
+                  disabled={debtSectorsLoading}
+                  className={joinClasses(
+                    "rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-sky-500 disabled:opacity-50",
+                    theme === "light"
+                      ? "border-slate-300 bg-white text-slate-900"
+                      : "border-slate-700 bg-slate-800 text-slate-100"
+                  )}
+                >
+                  <option value="All Sectors">All Sectors</option>
+                  {debtSectors.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             {/* As-of date */}
             <div className="flex flex-col gap-1">

@@ -1,4 +1,10 @@
-"""Fetch and cache S&P 500 / NASDAQ 100 / Dow 30 constituent lists from Wikipedia."""
+"""Fetch and cache S&P 500 / NASDAQ 100 / Dow 30 constituent lists.
+
+Sources:
+  SP500   — Wikipedia (has GICS sector)
+  NASDAQ100 — NASDAQ exchange API (no sector data)
+  DOW30   — Wikipedia (has sector)
+"""
 from __future__ import annotations
 
 import json
@@ -16,27 +22,29 @@ CACHE_TTL_DAYS = 7
 INDEX_CONFIG: Dict[str, Dict] = {
     "SP500": {
         "name": "S&P 500",
+        "source": "wikipedia",
         "url": "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies",
         "ticker_col_candidates": ["Symbol", "Ticker", "Ticker symbol"],
         "name_col_candidates": ["Security", "Company", "Name"],
         "sector_col_candidates": ["GICS Sector", "Sector", "GICS sector"],
         "min_rows": 20,
+        "has_sectors": True,
     },
     "NASDAQ100": {
         "name": "NASDAQ 100",
-        "url": "https://en.wikipedia.org/wiki/Nasdaq-100",
-        "ticker_col_candidates": ["Ticker", "Symbol", "Ticker symbol"],
-        "name_col_candidates": ["Company", "Security", "Name"],
-        "sector_col_candidates": ["GICS Sector", "Sector", "Industry"],
-        "min_rows": 20,
+        "source": "nasdaq_api",
+        "url": "https://api.nasdaq.com/api/quote/list-type/nasdaq100",
+        "has_sectors": False,
     },
     "DOW30": {
         "name": "Dow 30",
+        "source": "wikipedia",
         "url": "https://en.wikipedia.org/wiki/Dow_Jones_Industrial_Average",
         "ticker_col_candidates": ["Symbol", "Ticker", "Ticker symbol"],
         "name_col_candidates": ["Company", "Name", "Security"],
-        "sector_col_candidates": ["Industry", "GICS Sector", "Sector"],
+        "sector_col_candidates": ["Sector", "Industry", "GICS Sector"],
         "min_rows": 20,
+        "has_sectors": True,
     },
 }
 
@@ -131,6 +139,32 @@ def _parse_tables(html: str, config: Dict) -> List[Dict]:
     return []
 
 
+def _fetch_nasdaq100_api(url: str) -> List[Dict]:
+    """Fetch NASDAQ 100 constituents from the NASDAQ exchange API."""
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "application/json",
+    }
+    with httpx.Client(timeout=30.0, headers=headers, follow_redirects=True) as client:
+        response = client.get(url)
+        response.raise_for_status()
+        payload = response.json()
+
+    rows = payload.get("data", {}).get("data", {}).get("rows", [])
+    if not rows:
+        raise RuntimeError("NASDAQ API returned no rows for NASDAQ 100.")
+
+    return [
+        {
+            "ticker": row["symbol"].strip().upper(),
+            "name": row.get("companyName", row["symbol"]).strip(),
+            "sector": "N/A",
+        }
+        for row in rows
+        if row.get("symbol")
+    ]
+
+
 def fetch_constituents(index_id: str) -> List[Dict]:
     """Return [{ticker, name, sector}, ...] for the given index.
 
@@ -145,29 +179,35 @@ def fetch_constituents(index_id: str) -> List[Dict]:
         return cached
 
     config = INDEX_CONFIG[index_id]
-    ua = os.getenv("SEC_USER_AGENT", "ZakatTracker/1.0 (contact@example.com)")
-    headers = {
-        "User-Agent": ua,
-        "Accept": "text/html,application/xhtml+xml",
-    }
-    with httpx.Client(timeout=30.0, headers=headers, follow_redirects=True) as client:
-        response = client.get(config["url"])
-        response.raise_for_status()
-        html = response.text
 
-    constituents = _parse_tables(html, config)
-    if not constituents:
-        raise RuntimeError(
-            f"Could not parse constituent table for {index_id} from Wikipedia. "
-            "Table structure may have changed."
-        )
+    if config["source"] == "nasdaq_api":
+        constituents = _fetch_nasdaq100_api(config["url"])
+    else:
+        ua = os.getenv("SEC_USER_AGENT", "ZakatTracker/1.0 (contact@example.com)")
+        headers = {
+            "User-Agent": ua,
+            "Accept": "text/html,application/xhtml+xml",
+        }
+        with httpx.Client(timeout=30.0, headers=headers, follow_redirects=True) as client:
+            response = client.get(config["url"])
+            response.raise_for_status()
+            html = response.text
+
+        constituents = _parse_tables(html, config)
+        if not constituents:
+            raise RuntimeError(
+                f"Could not parse constituent table for {index_id} from Wikipedia. "
+                "Table structure may have changed."
+            )
 
     _save_cache(index_id, constituents)
     return constituents
 
 
 def get_sectors(index_id: str) -> List[str]:
-    """Return sorted unique sector list for the given index."""
+    """Return sorted unique sector list for the given index. Empty if no sector data."""
+    config = INDEX_CONFIG.get(index_id.upper(), {})
+    if not config.get("has_sectors"):
+        return []
     constituents = fetch_constituents(index_id)
-    sectors = sorted({c["sector"] for c in constituents if c.get("sector")})
-    return sectors
+    return sorted({c["sector"] for c in constituents if c.get("sector") and c["sector"] != "N/A"})
