@@ -83,36 +83,45 @@ def _extract_interest_bearing_debt(
     facts: Dict,
     as_of: date,
 ) -> Tuple[Optional[float], str]:
-    """Extract interest-bearing debt using priority cascade per spec.
+    """Extract interest-bearing debt using priority cascade.
 
-    Returns (value_in_usd, strategy_label).
+    Strategy 1 (granular): LongTermDebtNoncurrent + LongTermDebtCurrent + ShortTermBorrowings
+      - Only fires when at least one LT component is present; ST-only falls through.
+    Strategy 2 (aggregate): LongTermDebt + DebtCurrent
+      - Covers companies like Boeing that report the aggregate LT concept + current maturities.
+    Strategy 3 (ST only): ShortTermBorrowings or CommercialPaper alone
+      - For companies with no long-term debt.
+    Strategy 4 (combined): DebtLongtermAndShorttermCombinedAmount
+
+    CommercialPaper is intentionally excluded from early stages — stale values in EDGAR
+    can cause it to fire on companies that have paid off their CP, returning a ghost balance.
     """
     units = list(USD_UNITS)
 
-    # Strategy 1: sum LongTermDebtNoncurrent + LongTermDebtCurrent + ShortTermBorrowings
+    # Strategy 1 — granular LT noncurrent / LT current / ST borrowings
     lt_noncurrent, _ = extract_fact_value(facts, ["LongTermDebtNoncurrent"], units, as_of)
     lt_current, _ = extract_fact_value(facts, ["LongTermDebtCurrent"], units, as_of)
     st_borrow, _ = extract_fact_value(facts, ["ShortTermBorrowings"], units, as_of)
 
-    if lt_noncurrent is not None or lt_current is not None or st_borrow is not None:
-        total = (lt_noncurrent or 0.0) + (lt_current or 0.0) + (st_borrow or 0.0)
-        return total, "primary"
+    if lt_noncurrent is not None or lt_current is not None:
+        # Only commit to Strategy 1 when we have at least one LT component.
+        # ST-only result would miss LongTermDebt for companies like Boeing.
+        return (lt_noncurrent or 0.0) + (lt_current or 0.0) + (st_borrow or 0.0), "granular"
 
-    # CommercialPaper as substitute for ShortTermBorrowings when missing
-    cp, _ = extract_fact_value(facts, [DEBT_CONCEPTS_COMMERCIAL_PAPER], units, as_of)
-    if lt_noncurrent is not None or lt_current is not None or cp is not None:
-        total = (lt_noncurrent or 0.0) + (lt_current or 0.0) + (cp or 0.0)
-        return total, "primary_cp"
+    # Strategy 2 — aggregate LT + current maturities (Boeing, many large industrials)
+    lt_debt, _ = extract_fact_value(facts, ["LongTermDebt"], units, as_of)
+    debt_current, _ = extract_fact_value(facts, ["DebtCurrent"], units, as_of)
 
-    # Strategy 2: LongTermDebt + ShortTermBorrowings
-    lt_debt, _ = extract_fact_value(facts, DEBT_CONCEPTS_FALLBACK_LT, units, as_of)
-    st_borrow2, _ = extract_fact_value(facts, DEBT_CONCEPTS_FALLBACK_ST, units, as_of)
-    if lt_debt is not None or st_borrow2 is not None:
-        total = (lt_debt or 0.0) + (st_borrow2 or 0.0)
-        return total, "fallback_lt_st"
+    if lt_debt is not None or debt_current is not None:
+        return (lt_debt or 0.0) + (debt_current or 0.0), "aggregate"
 
-    # Strategy 3: combined amount concept
-    combined, _ = extract_fact_value(facts, DEBT_CONCEPTS_COMBINED, units, as_of)
+    # Strategy 3 — ST only (no long-term debt reported)
+    cp, _ = extract_fact_value(facts, ["CommercialPaper"], units, as_of)
+    if st_borrow is not None or cp is not None:
+        return (st_borrow or 0.0) + (cp or 0.0), "st_only"
+
+    # Strategy 4 — combined concept
+    combined, _ = extract_fact_value(facts, ["DebtLongtermAndShorttermCombinedAmount"], units, as_of)
     if combined is not None:
         return combined, "combined"
 
