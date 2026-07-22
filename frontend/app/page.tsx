@@ -2198,16 +2198,27 @@ export default function Home() {
             <div className="mt-6">
               {/* Summary line */}
               {(() => {
-                const screened = debtScreeningResult.results.filter(
+                const nonFin = debtScreeningResult.results.filter(
                   (r) => !r.is_financial_sector && r.ratio != null
                 );
-                const passing = screened.filter((r) => (r.ratio ?? 1) <= 0.3);
+                const passing = nonFin.filter((r) => (r.ratio ?? 1) <= 0.3);
+                const totalDebt = nonFin.reduce((s, r) => s + (r.interest_bearing_debt ?? 0), 0);
+                const totalAssets = nonFin.reduce((s, r) => s + (r.total_assets ?? 0), 0);
+                const aggRatio = totalAssets > 0 ? totalDebt / totalAssets : null;
                 return (
                   <p className="mb-3 text-sm text-slate-300">
                     <span className="font-semibold text-sky-400">{passing.length}</span>
                     {" of "}
-                    <span className="font-semibold">{screened.length}</span>
+                    <span className="font-semibold">{nonFin.length}</span>
                     {" non-financial companies pass (ratio ≤ 30%)"}
+                    {aggRatio !== null && (
+                      <span className="ml-2 text-slate-400">
+                        {"· Index aggregate ratio: "}
+                        <span className={aggRatio > 0.3 ? "font-semibold text-red-400" : "font-semibold text-green-400"}>
+                          {(aggRatio * 100).toFixed(1)}%
+                        </span>
+                      </span>
+                    )}
                     {debtSector && debtSector !== "All Sectors" && (
                       <span className="text-slate-500"> · Sector: {debtSector}</span>
                     )}
