@@ -255,6 +255,8 @@ export default function Home() {
   const [portfolioGeneratedAt, setPortfolioGeneratedAt] = useState<string | null>(null);
   const [fundGeneratedAt, setFundGeneratedAt] = useState<string | null>(null);
 
+  const [mounted, setMounted] = useState(false);
+  const [todayStr, setTodayStr] = useState<string>("");
   const [portfolioLoading, setPortfolioLoading] = useState(false);
   const [fundLoading, setFundLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -276,14 +278,28 @@ export default function Home() {
   const [debtIndexId, setDebtIndexId] = useState<string>("SP500");
   const [debtSectors, setDebtSectors] = useState<string[]>([]);
   const [debtSector, setDebtSector] = useState<string>("All Sectors");
-  const [debtAsOfDate, setDebtAsOfDate] = useState<string>(
-    () => new Date().toISOString().slice(0, 10)
-  );
+  const [debtAsOfDate, setDebtAsOfDate] = useState<string>("");
   const [debtScreeningLoading, setDebtScreeningLoading] = useState(false);
   const [debtScreeningResult, setDebtScreeningResult] = useState<DebtScreeningResponse | null>(null);
   const [debtScreeningError, setDebtScreeningError] = useState<string | null>(null);
   const [debtSectorsLoading, setDebtSectorsLoading] = useState(false);
   const [debtAbortController, setDebtAbortController] = useState<AbortController | null>(null);
+
+  // Single company debt ratio lookup state
+  const [debtLookupTicker, setDebtLookupTicker] = useState<string>("");
+  const [debtLookupAsOfDate, setDebtLookupAsOfDate] = useState<string>("");
+  const [debtLookupLoading, setDebtLookupLoading] = useState(false);
+  const [debtLookupResult, setDebtLookupResult] = useState<CompanyDebtResult | null>(null);
+  const [debtLookupError, setDebtLookupError] = useState<string | null>(null);
+  const [debtLookupAbortController, setDebtLookupAbortController] = useState<AbortController | null>(null);
+
+  useEffect(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    setMounted(true);
+    setTodayStr(today);
+    setDebtAsOfDate(today);
+    setDebtLookupAsOfDate(today);
+  }, []);
 
   useEffect(() => {
     if (!instructionsOpen || instructionsContent !== null) {
@@ -1257,6 +1273,8 @@ export default function Home() {
     }
   };
 
+  if (!mounted) return null;
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
       <main className="mx-auto flex max-w-6xl flex-col gap-8 px-6 pb-24 pt-10 lg:flex-row lg:gap-12">
@@ -1332,7 +1350,8 @@ export default function Home() {
                     type="date"
                     value={asOfDate}
                     onChange={(event) => setAsOfDate(event.target.value)}
-                    max={new Date().toISOString().slice(0, 10)}
+                    max={todayStr || undefined}
+                    suppressHydrationWarning
                   />
                 </label>
                 <p className="text-sm text-slate-400">
@@ -1601,7 +1620,7 @@ export default function Home() {
                       Portfolio Companies
                     </h3>
                     {portfolioGeneratedAt && (
-                      <p className="text-xs text-slate-400">
+                      <p suppressHydrationWarning className="text-xs text-slate-400">
                         Generated at {new Date(portfolioGeneratedAt).toLocaleString()}.
                       </p>
                     )}
@@ -1749,7 +1768,7 @@ export default function Home() {
                       Fund & ETF Holdings
                     </h3>
                     {fundGeneratedAt && (
-                      <p className="text-xs text-slate-400">
+                      <p suppressHydrationWarning className="text-xs text-slate-400">
                         Generated at {new Date(fundGeneratedAt).toLocaleString()}.
                       </p>
                     )}
@@ -2088,6 +2107,7 @@ export default function Home() {
                 type="date"
                 value={debtAsOfDate}
                 onChange={(e) => setDebtAsOfDate(e.target.value)}
+                suppressHydrationWarning
                 className={joinClasses(
                   "rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-sky-500",
                   theme === "light"
@@ -2340,6 +2360,214 @@ export default function Home() {
               </div>
             </div>
           )}
+        </section>
+
+        {/* ------------------------------------------------------------------ */}
+        {/* Single Company Debt Ratio Lookup section                           */}
+        {/* ------------------------------------------------------------------ */}
+        <section className={joinClasses(
+          "mt-8 rounded-2xl border p-6",
+          theme === "light"
+            ? "border-slate-200 bg-white shadow-sm"
+            : "border-slate-800 bg-slate-950/40"
+        )}>
+          <div className="mb-4">
+            <h2 className={joinClasses("text-lg font-semibold", theme === "light" ? "text-slate-800" : "text-slate-100")}>
+              Single Company Debt Ratio
+            </h2>
+            <p className={joinClasses("mt-1 text-sm", theme === "light" ? "text-slate-500" : "text-slate-400")}>
+              Look up the interest-bearing debt / total assets ratio for any individual
+              ticker without screening a full index.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="flex flex-col gap-1">
+              <label className={joinClasses("text-xs font-medium", theme === "light" ? "text-slate-600" : "text-slate-400")} htmlFor="debt-lookup-ticker">
+                Ticker
+              </label>
+              <input
+                id="debt-lookup-ticker"
+                type="text"
+                value={debtLookupTicker}
+                onChange={(e) => setDebtLookupTicker(e.target.value.toUpperCase())}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && debtLookupTicker.trim() && !debtLookupLoading) {
+                    e.preventDefault();
+                    (document.getElementById("debt-lookup-btn") as HTMLButtonElement | null)?.click();
+                  }
+                }}
+                placeholder="e.g. AAPL"
+                className={joinClasses(
+                  "w-32 rounded-lg border px-3 py-2 text-sm uppercase focus:outline-none focus:ring-1 focus:ring-sky-500",
+                  theme === "light"
+                    ? "border-slate-300 bg-white text-slate-900 placeholder:text-slate-400"
+                    : "border-slate-700 bg-slate-800 text-slate-100 placeholder:text-slate-500"
+                )}
+              />
+            </div>
+
+            <div className="flex flex-col gap-1">
+              <label className={joinClasses("text-xs font-medium", theme === "light" ? "text-slate-600" : "text-slate-400")} htmlFor="debt-lookup-asof-date">
+                As-of Date
+              </label>
+              <input
+                id="debt-lookup-asof-date"
+                type="date"
+                value={debtLookupAsOfDate}
+                onChange={(e) => setDebtLookupAsOfDate(e.target.value)}
+                suppressHydrationWarning
+                className={joinClasses(
+                  "rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-sky-500",
+                  theme === "light"
+                    ? "border-slate-300 bg-white text-slate-900"
+                    : "border-slate-700 bg-slate-800 text-slate-100"
+                )}
+              />
+            </div>
+
+            {debtLookupLoading ? (
+              <button
+                type="button"
+                onClick={() => {
+                  debtLookupAbortController?.abort();
+                  setDebtLookupAbortController(null);
+                  setDebtLookupLoading(false);
+                  setDebtLookupError("Lookup cancelled.");
+                }}
+                className="rounded-lg bg-red-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-600"
+              >
+                Cancel
+              </button>
+            ) : (
+              <button
+                id="debt-lookup-btn"
+                type="button"
+                disabled={!debtLookupTicker.trim()}
+                onClick={async () => {
+                  const ticker = debtLookupTicker.trim();
+                  if (!ticker) return;
+                  const controller = new AbortController();
+                  setDebtLookupAbortController(controller);
+                  setDebtLookupLoading(true);
+                  setDebtLookupError(null);
+                  setDebtLookupResult(null);
+                  try {
+                    const params = new URLSearchParams({ as_of_date: debtLookupAsOfDate });
+                    const resp = await fetch(
+                      `${API_BASE_URL}/screening/debt-ratio/${encodeURIComponent(ticker)}?${params}`,
+                      { signal: controller.signal }
+                    );
+                    if (!resp.ok) {
+                      const body = await resp.json().catch(() => ({}));
+                      throw new Error((body as { detail?: string }).detail ?? `HTTP ${resp.status}`);
+                    }
+                    const data = await resp.json() as CompanyDebtResult;
+                    setDebtLookupResult(data);
+                  } catch (err) {
+                    if ((err as Error).name !== "AbortError") {
+                      setDebtLookupError(err instanceof Error ? err.message : "Lookup failed.");
+                    }
+                  } finally {
+                    setDebtLookupLoading(false);
+                    setDebtLookupAbortController(null);
+                  }
+                }}
+                className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-500 disabled:opacity-40"
+              >
+                Look Up
+              </button>
+            )}
+          </div>
+
+          {debtLookupLoading && (
+            <div className={joinClasses("mt-4 text-sm", theme === "light" ? "text-slate-500" : "text-slate-400")}>
+              Fetching debt data for {debtLookupTicker}…
+            </div>
+          )}
+
+          {debtLookupError && (
+            <div className="mt-4 rounded-lg bg-red-900/30 p-3 text-sm text-red-300">
+              {debtLookupError}
+            </div>
+          )}
+
+          {debtLookupResult && !debtLookupLoading && (() => {
+            const r = debtLookupResult;
+            const pct = r.ratio != null ? (r.ratio * 100).toFixed(1) + "%" : "—";
+            const pass = r.ratio != null && !r.is_financial_sector && r.ratio <= 0.30;
+            const fail = r.ratio != null && !r.is_financial_sector && r.ratio > 0.30;
+            return (
+              <div className="mt-6">
+                <div className="mb-4 flex flex-wrap items-baseline gap-3">
+                  <span className={joinClasses("text-xl font-bold", theme === "light" ? "text-slate-800" : "text-slate-100")}>
+                    {r.ticker}
+                  </span>
+                  {r.name && r.name !== r.ticker && (
+                    <span className={joinClasses("text-sm", theme === "light" ? "text-slate-500" : "text-slate-400")}>
+                      {r.name}
+                    </span>
+                  )}
+                  {pass && (
+                    <span className="rounded-full bg-emerald-900/40 px-2.5 py-0.5 text-xs font-semibold text-emerald-300">
+                      Pass ≤ 30%
+                    </span>
+                  )}
+                  {fail && (
+                    <span className="rounded-full bg-red-900/40 px-2.5 py-0.5 text-xs font-semibold text-red-300">
+                      Fail &gt; 30%
+                    </span>
+                  )}
+                  {r.is_financial_sector && (
+                    <span className="rounded-full bg-slate-700/60 px-2.5 py-0.5 text-xs font-semibold text-slate-300">
+                      Financial sector
+                    </span>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  {([
+                    ["Debt / Assets", pct, "Interest-bearing debt ÷ total assets"],
+                    ["Total Assets", r.total_assets != null ? `$${formatNumber(r.total_assets, { notation: "compact" })}` : "—", undefined],
+                    ["Interest-Bearing Debt", r.interest_bearing_debt != null ? `$${formatNumber(r.interest_bearing_debt, { notation: "compact" })}` : "—", undefined],
+                  ] as [string, string, string | undefined][]).map(([label, value, hint]) => (
+                    <div
+                      key={label}
+                      className={joinClasses(
+                        "rounded-xl border p-3",
+                        theme === "light"
+                          ? "border-slate-200 bg-slate-50"
+                          : "border-slate-700 bg-slate-800/60"
+                      )}
+                    >
+                      <div className={joinClasses("text-xs font-medium", theme === "light" ? "text-slate-500" : "text-slate-400")}>
+                        {label}
+                      </div>
+                      <div className={joinClasses(
+                        "mt-1 text-base font-semibold",
+                        label === "Debt / Assets" && fail ? "text-red-400"
+                          : label === "Debt / Assets" && pass ? "text-emerald-400"
+                          : theme === "light" ? "text-slate-800" : "text-slate-100"
+                      )}>
+                        {value}
+                      </div>
+                      {hint && (
+                        <div className={joinClasses("mt-0.5 text-[11px]", theme === "light" ? "text-slate-400" : "text-slate-500")}>
+                          {hint}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {r.error && (
+                  <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-900/20 p-3 text-xs text-amber-200">
+                    {r.error}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </section>
 
         </div>

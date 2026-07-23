@@ -23,6 +23,7 @@ SEC_USER_AGENT=AgenticFinancialTracker/0.1 (your-email@example.com)
 POLYGON_API_KEY=your-polygon-api-key
 POLYGON_BASE_URL=https://api.polygon.io
 ALPHA_VANTAGE_API_KEY=your-alpha-vantage-key
+ALPHAVANTAGE_API_KEY=your-alpha-vantage-key
 
 # Frontend → Backend URL
 NEXT_PUBLIC_API_URL=http://localhost:8000

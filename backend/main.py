@@ -146,6 +146,40 @@ async def screen_debt_ratios(payload: DebtScreeningRequest) -> DebtScreeningResp
     )
 
 
+# ---------------------------------------------------------------------------
+# Single company debt ratio lookup
+# ---------------------------------------------------------------------------
+
+@app.get("/screening/debt-ratio/{ticker}", response_model=CompanyDebtResult)
+async def get_single_debt_ratio(
+    ticker: str,
+    as_of_date: date | None = Query(default=None),
+) -> CompanyDebtResult:
+    """Return interest-bearing debt / total assets ratio for a single ticker."""
+    from backend.services.debt_screening import _screen_one_sync
+    from backend.services.edgar_client import get_edgar_client
+
+    as_of = as_of_date if as_of_date else date.today()
+    ticker_upper = ticker.upper().strip()
+
+    # Best-effort company name lookup from SEC submissions
+    name = ticker_upper
+    try:
+        edgar = get_edgar_client()
+        cik = edgar.get_cik(ticker_upper)
+        if cik:
+            submissions = edgar.get_company_submissions(cik) or {}
+            name = submissions.get("name", ticker_upper) or ticker_upper
+    except Exception:  # noqa: BLE001
+        pass
+
+    try:
+        result = await asyncio.to_thread(_screen_one_sync, ticker_upper, name, "Unknown", as_of)
+        return CompanyDebtResult(**result)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"Debt ratio lookup failed: {exc}") from exc
+
+
 import uvicorn
 
 if __name__ == "__main__":
